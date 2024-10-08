@@ -9,6 +9,7 @@ enum class StatusCode {
     INVALID_INPUT,
     OUT_OF_MEMORY,
     OPERATION_NOT_SUPPORTED,
+    NULL_POINTER
 };
 
 

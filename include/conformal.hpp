@@ -37,5 +37,5 @@ public:
      * @param X The input vector
      * @return Status The status of the operation
      */
-    Status inference(const Eigen::MatrixXd& A, const Eigen::VectorXd& X) override;
+    Status inference(const Eigen::MatrixXd& A) override;
 };

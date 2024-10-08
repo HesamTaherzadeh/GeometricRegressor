@@ -1,10 +1,12 @@
+#pragma once
+
 #include <iostream>
 #include <Eigen/Dense>
 #include <memory>
 #include "utils.hpp"
 
 
-class AbstractModel {
+class AbstractModel{
 public:
     AbstractModel() = default;
     AbstractModel(AbstractModel&& obj) noexcept 
@@ -24,7 +26,7 @@ public:
 
     virtual Status constructA(const Eigen::VectorXd& X, const Eigen::VectorXd& Y) = 0;
 
-    virtual Status inference(const Eigen::MatrixXd& A, const Eigen::VectorXd& X) = 0;
+    virtual Status inference(const Eigen::MatrixXd& A) = 0;
 
     virtual ~AbstractModel() = default;
     

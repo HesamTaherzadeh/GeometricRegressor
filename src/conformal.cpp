@@ -31,18 +31,20 @@ Status Conformal::constructA(const Eigen::VectorXd &X, const Eigen::VectorXd &Y)
     return Status::Ok();
 }
 
-Status Conformal::solve(const Eigen::MatrixXd &A, const Eigen::VectorXd &Y)
-{
+Status Conformal::solve(const Eigen::MatrixXd &A, const Eigen::VectorXd &Y) {
     if (A.rows() != Y.size()) {
         return Status::Error(StatusCode::INVALID_INPUT, "A rows and Y size must match.");
     }
 
+    Eigen::MatrixXd AtA = A.transpose() * A;
+    Eigen::VectorXd AtY = A.transpose() * Y;
+
     if (!coefficients) {
-        coefficients = std::make_shared<Eigen::VectorXd>(Y.size());
+        coefficients = std::make_shared<Eigen::VectorXd>(AtY.size());
     }
 
     try {
-        *coefficients = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(Y);
+        *coefficients = AtA.ldlt().solve(AtY);
     } catch (const std::exception& e) {
         return Status::Error(StatusCode::FAILURE, e.what());
     }
@@ -50,9 +52,9 @@ Status Conformal::solve(const Eigen::MatrixXd &A, const Eigen::VectorXd &Y)
     return Status::Ok();
 }
 
-Status Conformal::inference(const Eigen::MatrixXd &A, const Eigen::VectorXd &X)
+Status Conformal::inference(const Eigen::MatrixXd &A)
 {
-    if (A.cols() != X.size()) {
+    if (A.cols() != coefficients->size()) {
         return Status::Error(StatusCode::INVALID_INPUT, "A columns and X size must match.");
     }
 
@@ -61,7 +63,7 @@ Status Conformal::inference(const Eigen::MatrixXd &A, const Eigen::VectorXd &X)
     }
 
     try {
-        *results = A * X;
+        *results = A * *(coefficients);
     } catch (const std::exception& e) {
         return Status::Error(StatusCode::FAILURE, e.what());
     }
