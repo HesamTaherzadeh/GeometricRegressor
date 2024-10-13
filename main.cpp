@@ -5,7 +5,6 @@
 
 /**
  * Adapt to real dataset 
- * Add affine 
  */
 int main() {
     ModelContext context;

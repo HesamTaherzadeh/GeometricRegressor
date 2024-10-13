@@ -9,7 +9,7 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 find_package(Ceres REQUIRED)
 
-add_executable(TransformationSolver main.cpp src/model.cpp src/conformal.cpp)
+add_executable(TransformationSolver main.cpp src/model.cpp src/conformal.cpp src/affine.cpp)
 
 target_include_directories(TransformationSolver PUBLIC ${EIGEN3_INCLUDE_DIR} ${CERES_INCLUDE_DIRS} include)
 
