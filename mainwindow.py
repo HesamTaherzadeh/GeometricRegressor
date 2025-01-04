@@ -3,23 +3,29 @@ from PySide6.QtGui import QColor, QPainter, QPixmap, QPen, QIcon
 from PySide6.QtWidgets import (
     QApplication, QSlider, QInputDialog, QMessageBox, QDialog, QProgressDialog, QMainWindow, QPushButton, QLabel, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QScrollArea, QSpacerItem, QSizePolicy
 )
+from PySide6.QtCore import QThread
+
 from PySide6.QtGui import QImage, QPixmap
 from matplotlib.figure import Figure
 from ui.widgets.circular import CircleNumberWidget
 from ui.magnifier import  MagnifierGraphicsView
 from core.polynomial import Polynomial
-from core.resampling import Resampling
+from core.resampling import ResamplingWorker
 import numpy as np 
 import matplotlib.pyplot as plt
 
+from core.project import Project
 
 class HoverButton(QPushButton):
     def __init__(self, icon_path, parent=None):
         super().__init__(parent)
 
-        # Set the icon and its initial size
-        self.setIcon(QIcon(icon_path))
-        self.setIconSize(QSize(50, 50))  # Initial size
+        # Convert the icon to a completely white pixmap
+        white_icon_pixmap = self.create_white_icon(icon_path)
+        self.setIcon(QIcon(white_icon_pixmap))
+
+        # Set the initial icon size
+        self.setIconSize(QSize(80, 80))  # Initial size
         self.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -30,6 +36,25 @@ class HoverButton(QPushButton):
         # Create the animation for icon size
         self.animation = QPropertyAnimation(self, b"iconSize")
         self.animation.setEasingCurve(QEasingCurve.OutQuad)
+
+    def create_white_icon(self, icon_path):
+        """Convert the given icon to a completely white version."""
+        original_pixmap = QPixmap(icon_path)
+        if original_pixmap.isNull():
+            raise ValueError(f"Could not load icon from path: {icon_path}")
+
+        # Create a white pixmap of the same size
+        white_pixmap = QPixmap(original_pixmap.size())
+        white_pixmap.fill(Qt.transparent)
+
+        # Use QPainter to overlay the white color onto the pixmap
+        painter = QPainter(white_pixmap)
+        painter.drawPixmap(0, 0, original_pixmap)  # Draw the original pixmap
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(original_pixmap.rect(), QColor("white"))  # Fill with white color
+        painter.end()
+
+        return white_pixmap
 
     def enterEvent(self, event):
         """Animate enlarging the icon when the mouse hovers over the button."""
@@ -44,7 +69,7 @@ class HoverButton(QPushButton):
         """Animate shrinking the icon back to its original size."""
         self.animation.stop()
         self.animation.setStartValue(self.iconSize())
-        self.animation.setEndValue(QSize(50, 50))  # Original size
+        self.animation.setEndValue(QSize(80, 80))  # Original size
         self.animation.setDuration(200)
         self.animation.start()
         super().leaveEvent(event)
@@ -53,6 +78,8 @@ class HoverButton(QPushButton):
 class ToolBoxMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        self.project = Project.get_instance() 
 
         # Set window flags to make it movable
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
@@ -72,7 +99,7 @@ class ToolBoxMainWindow(QMainWindow):
         self.image_scene = QGraphicsScene()
         self.image_viewer = MagnifierGraphicsView(self.image_scene)
         self.image_viewer.setScene(self.image_scene)
-        self.image_viewer.setStyleSheet("border: 2px solid gray; background-color: transparent;")
+        self.image_viewer.setStyleSheet("border: 0.5px solid gray; background-color: transparent;")
         image_layout.addWidget(self.image_viewer)
 
         self.table_scroll_area = QScrollArea()
@@ -90,29 +117,38 @@ class ToolBoxMainWindow(QMainWindow):
         image_layout.addWidget(self.table_scroll_area)
 
         self.main_layout.addLayout(image_layout)
+        
+        self.right_layout = QVBoxLayout()
+
+        self.save_project_button = HoverButton("ui/icon/save.png")  # Replace with your save icon path
+        self.save_project_button.clicked.connect(self.save_project_dialog)
+        self.right_layout.addWidget(self.save_project_button)
+
+        self.load_project_button = HoverButton("ui/icon/open.png")  # Replace with your load icon path
+        self.load_project_button.clicked.connect(self.load_project_dialog)
+        self.right_layout.addWidget(self.load_project_button)
 
         # Right layout: Buttons and controls
-        self.right_layout = QVBoxLayout()
         self.open_button = HoverButton("ui/icon/image.png")
         
         self.open_button.clicked.connect(self.open_image)
         self.right_layout.addWidget(self.open_button)
 
-        self.load_gcp_button = HoverButton("ui/icon/icp.png")
+        self.load_gcp_button = HoverButton("ui/icon/pin.png")
         self.load_gcp_button.clicked.connect(self.load_gcp_file)
         self.right_layout.addWidget(self.load_gcp_button)
 
-        self.toggle_table_button = HoverButton("ui/icon/eye.webp")
+        self.toggle_table_button = HoverButton("ui/icon/eye.png")
         self.toggle_table_button.clicked.connect(self.toggle_table_visibility)
         self.toggle_table_button.setVisible(False)
         self.right_layout.addWidget(self.toggle_table_button)
         last_layout = QVBoxLayout()
 
-        self.forward_button = HoverButton("ui/icon/forward.webp")  # "Forward" button
+        self.forward_button = HoverButton("ui/icon/regress.png")  # "Forward" button
         self.forward_button.clicked.connect(self.perform_regression)
         self.right_layout.addWidget(self.forward_button)
         
-        self.resampling_button = HoverButton("ui/icon/resampling.png", self)  # Use your resampling icon
+        self.resampling_button = HoverButton("ui/icon/resample.png", self)  # Use your resampling icon
         self.resampling_button.clicked.connect(self.perform_resampling)
         self.right_layout.addWidget(self.resampling_button)
 
@@ -173,7 +209,7 @@ class ToolBoxMainWindow(QMainWindow):
 
     def perform_resampling(self):
         """
-        Perform resampling using the Polynomial model and display the resampled grid image.
+        Perform resampling using the Polynomial model in a separate thread.
         """
         if not self.image_viewer.pixmap:
             QMessageBox.warning(self, "Warning", "Please load an image before performing resampling.")
@@ -185,70 +221,100 @@ class ToolBoxMainWindow(QMainWindow):
             return
 
         step, ok = QInputDialog.getDouble(
-            self, "Input", "Enter satellite GSD (resolution):", 1.0, 0.1, 10.0, 2
+            self, "Input", "Enter satellite GSD (resolution):", 1.0, 0.1, 500.0, 2
         )
         if not ok:
             return
 
-        try:
-            # Initialize the resampling process
-            polynomial = Polynomial(gcp_points, self.degree_slider.value())
-            resampling = Resampling(
-                polynomial=polynomial,
-                image_path=self.image_viewer.image_path,
-                gcp_points=gcp_points,
-                icp_points=self.get_icp_points()
-            )
-            resampling.load_image()
+        # Create a progress dialog
+        self.progress_dialog = QProgressDialog("Resampling in progress...", "Cancel", 0, 100, self)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.show()
 
-            # Perform resampling
-            progress = QProgressDialog("Resampling in progress...", "Cancel", 0, 100, self)
-            progress.setWindowModality(Qt.WindowModal)
-            grd_image = resampling.resample(step=step)
+        # Create the worker and thread
+        self.resampling_worker = ResamplingWorker(
+            image_scene=self.image_scene,
+            gcp_points=gcp_points,
+            icp_points=self.get_icp_points(),
+            step=step,
+            degree=self.degree_slider.value()
+        )
+        self.resampling_thread = QThread()
 
-            # Save or display results
-            np.save("resampled_grid.npy", grd_image)
-            QMessageBox.information(self, "Success", "Resampling completed. Output saved as 'resampled_grid.npy'.")
+        # Move the worker to the thread
+        self.resampling_worker.moveToThread(self.resampling_thread)
 
-            # Display the resampled grid in a new window
-            self.show_resampled_grid(grd_image)
+        # Connect signals and slots
+        self.resampling_thread.started.connect(self.resampling_worker.run)
+        self.resampling_worker.finished.connect(self.resampling_thread.quit)
+        self.resampling_worker.finished.connect(self.resampling_worker.deleteLater)
+        self.resampling_thread.finished.connect(self.resampling_thread.deleteLater)
+        self.resampling_worker.error.connect(self.handle_resampling_error)
+        self.resampling_worker.progress.connect(self.progress_dialog.setValue)
+        self.resampling_worker.resampled.connect(self.show_resampled_grid)  # Connect resampled signal
 
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+        # Handle cancellation
+        self.progress_dialog.canceled.connect(self.resampling_worker.cancel)
+
+        # Start the thread
+        self.resampling_thread.start()
+
+    def handle_resampling_error(self, error_message):
+        """Handle errors during resampling."""
+        QMessageBox.critical(self, "Error", f"An error occurred during resampling: {error_message}")
+        self.progress_dialog.close()
 
     def show_resampled_grid(self, grd_image):
         """
         Display the resampled grid image in a new dialog window.
-
-        Parameters:
-        grd_image (np.ndarray): The resampled grid image array.
         """
-        # Normalize the resampled grid for visualization
-        normalized_image = (grd_image - np.min(grd_image)) / (np.max(grd_image) - np.min(grd_image)) * 255
-        normalized_image = normalized_image.astype(np.uint8)
+        try:
+            # Normalize the resampled grid for visualization
+            min_val, max_val = np.min(grd_image), np.max(grd_image)
+            if max_val == min_val:
+                print("Warning: grd_image has uniform values. Normalizing to zeros.")
+                normalized_image = np.zeros_like(grd_image, dtype=np.uint8)
+            else:
+                normalized_image = ((grd_image - min_val) / (max_val - min_val) * 255).astype(np.uint8)
 
-        # Convert to QPixmap
-        height, width = normalized_image.shape
-        qimage = QImage(normalized_image, width, height, QImage.Format_Grayscale8)
-        pixmap = QPixmap.fromImage(qimage)
+            # Ensure normalized_image is valid
+            if normalized_image is None or normalized_image.size == 0:
+                raise ValueError("Normalized image is empty or invalid.")
 
-        # Create a dialog for the resampled grid
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Resampled Grid Image")
-        dialog.setMinimumSize(800, 600)
+            # Convert to QPixmap
+            height, width = normalized_image.shape
+            bytes_per_line = width
+            qimage = QImage(normalized_image.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
 
-        # Create a QLabel to display the resampled grid
-        label = QLabel(dialog)
-        label.setPixmap(pixmap)
-        label.setAlignment(Qt.AlignCenter)
+            if qimage.isNull():
+                raise ValueError("Failed to create QImage from normalized image.")
 
-        # Set up the dialog layout
-        layout = QVBoxLayout()
-        layout.addWidget(label)
-        dialog.setLayout(layout)
+            pixmap = QPixmap.fromImage(qimage)
 
-        # Show the dialog
-        dialog.exec()
+            if pixmap.isNull():
+                raise ValueError("Failed to create QPixmap from QImage.")
+
+            # Create a dialog for the resampled grid
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Resampled Grid Image")
+            dialog.setMinimumSize(800, 600)
+
+            # Create a QLabel to display the resampled grid
+            label = QLabel(dialog)
+            label.setPixmap(pixmap)
+            label.setAlignment(Qt.AlignCenter)
+
+            # Set up the dialog layout
+            layout = QVBoxLayout()
+            layout.addWidget(label)
+            dialog.setLayout(layout)
+
+            # Show the dialog
+            dialog.exec()
+
+        except Exception as e:
+            print(f"Error displaying resampled grid: {e}")
+
     
     def sizeHint(self):
         return QSize(1800, 1600)
@@ -287,7 +353,6 @@ class ToolBoxMainWindow(QMainWindow):
             self.image_viewer.fitInView(self.image_scene.sceneRect(), Qt.KeepAspectRatio)
 
 
-
     def load_gcp_file(self):
         """
         Opens a file dialog to select a GCP file and loads its content into the table.
@@ -309,6 +374,7 @@ class ToolBoxMainWindow(QMainWindow):
                     # Add ICP checkbox in the last column
                     checkbox = QCheckBox()
                     checkbox.setStyleSheet("margin-left: 50%; margin-right: 50%;")
+                    checkbox.stateChanged.connect(lambda state, row=row: self.update_icon(row, state))
                     self.table_widget.setCellWidget(row, 6, checkbox)
 
                     # Draw scaled icons on the image
@@ -317,9 +383,9 @@ class ToolBoxMainWindow(QMainWindow):
                         idx = values[0]
 
                         # Load, scale, and place the icon
-                        icon_path = "ui/icon/pin.webp"  # Replace with the path to your icon
+                        icon_path = "ui/icon/redpin.png"  # Replace with the path to your icon
                         icon_pixmap = QPixmap(icon_path)
-                        scaled_pixmap = icon_pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)  # Resize to 20x20
+                        scaled_pixmap = icon_pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)  # Resize to 20x20
                         icon_item = self.image_scene.addPixmap(scaled_pixmap)
                         icon_item.setOffset(x - scaled_pixmap.width() // 2, y - scaled_pixmap.height() // 2)
 
@@ -332,6 +398,46 @@ class ToolBoxMainWindow(QMainWindow):
 
             self.table_scroll_area.setVisible(True)
             self.toggle_table_button.setVisible(True)
+
+    def update_icon(self, row, state):
+        """
+        Updates the icon of the point based on the checkbox state.
+        """
+        # Determine the new icon path based on the checkbox state
+        if state == Qt.Checked:
+            icon_path = "ui/icon/redpin.png"  # Replace with the path to your selected icon
+        else:
+            icon_path = "ui/icon/bluepin.png"  # Replace with the path to your unselected icon
+
+        # Get the x, y coordinates from the table
+        x = float(self.table_widget.item(row, 1).text())
+        y = float(self.table_widget.item(row, 2).text())
+
+        # Load the new icon pixmap
+        icon_pixmap = QPixmap(icon_path)
+        if icon_pixmap.isNull():
+            print(f"Failed to load icon from path: {icon_path}")
+            return
+
+        # Scale the icon pixmap
+        scaled_pixmap = icon_pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        # Find and update the corresponding icon in the scene
+        for item in self.image_scene.items():
+            if isinstance(item, QGraphicsPixmapItem):
+                # Calculate the item's center position
+                item_center_x = item.offset().x() + item.pixmap().width() // 2
+                item_center_y = item.offset().y() + item.pixmap().height() // 2
+
+                # Check if the item's position matches the target coordinates
+                if abs(item_center_x - x) < 1 and abs(item_center_y - y) < 1:
+                    # Update the pixmap of the item
+                    item.setPixmap(scaled_pixmap)
+                    break  # Stop searching once the correct item is updated
+
+        # Force the scene to update
+        self.image_scene.update()
+
 
     def get_gcp_points(self):
         """
@@ -374,7 +480,7 @@ class ToolBoxMainWindow(QMainWindow):
     def perform_regression(self):
         """
         Evaluate the polynomial regression on ICP points, calculate RMSE,
-        and display a quiver plot in a new window added to the left of the main window.
+        and display quiver plots for forward and backward transformations side by side.
         """
         icp_points = self.get_icp_points()  # Extract ICP points
         if not icp_points:
@@ -388,88 +494,105 @@ class ToolBoxMainWindow(QMainWindow):
             return
 
         polynomial = Polynomial(gcp_points, degree)
-        coeffs_X, coeffs_Y = polynomial.regress_polynomial()
+        
+        coeffs_x_forward, coeffs_y_forward, coeffs_x_backward, coeffs_y_backward = polynomial.regress_polynomial()
 
-        # Evaluate polynomial on ICP points
-        predicted_X, predicted_Y = polynomial.evaluate(coeffs_X, coeffs_Y, icp_points)
+        # Evaluate forward polynomial on ICP points
+        predicted_x_forward, predicted_y_forward = polynomial.evaluate(
+            (coeffs_x_forward, coeffs_y_forward), icp_points, forward=True
+        )
 
-        # Calculate RMSE
-        actual_X = np.array([point['X'] for point in icp_points])
-        actual_Y = np.array([point['Y'] for point in icp_points])
-        rmse_X, rmse_Y = polynomial.rmse(predicted_X, predicted_Y, actual_X, actual_Y)
+        # Evaluate backward polynomial on GCP points
+        predicted_x_backward, predicted_y_backward = polynomial.evaluate(
+            (coeffs_x_backward, coeffs_y_backward), icp_points, forward=False
+        )
+
+        self.project.forward_coeffs = (coeffs_x_forward, coeffs_y_forward)
+        self.project.backward_coeffs = (coeffs_x_backward, coeffs_y_backward)
+        self.project.degree = degree
+
+        # Calculate RMSE for forward and backward transformations
+        actual_X = np.array([point['x'] for point in icp_points])
+        actual_Y = np.array([point['y'] for point in icp_points])
+        rmse_X_forward, rmse_Y_forward = polynomial.rmse(predicted_x_forward, predicted_y_forward, actual_X, actual_Y)
+
+        actual_x = np.array([point['X'] for point in icp_points])
+        actual_y = np.array([point['Y'] for point in icp_points])
+        rmse_X_backward, rmse_Y_backward = polynomial.rmse(predicted_x_backward, predicted_y_backward, actual_x, actual_y)
 
         # Display RMSE in a QMessageBox
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Evaluation Results")
         msg_box.setText(
             f"<b>Evaluation Summary:</b><br><br>"
-            f"<b>Number of GCPs:</b> {len(gcp_points)}<br>"
-            f"<b>Number of ICPs:</b> {len(icp_points)}<br>"
-            f"<b>RMSE (X):</b> {rmse_X:.4f}<br>"
-            f"<b>RMSE (Y):</b> {rmse_Y:.4f}"
+            f"<b>Forward Transformation:</b><br>"
+            f"RMSE (X): {rmse_X_forward:.4f}, RMSE (Y): {rmse_Y_forward:.4f}<br><br>"
+            f"<b>Backward Transformation:</b><br>"
+            f"RMSE (X): {rmse_X_backward:.4f}, RMSE (Y): {rmse_Y_backward:.4f}"
         )
         msg_box.exec()
 
-        self.show_quiver_plot(icp_points, predicted_X, predicted_Y, actual_X, actual_Y)
+        self.show_quiver_plots(icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward)
 
-    def show_quiver_plot(self, icp_points, predicted_X, predicted_Y, actual_X, actual_Y):
+    def show_quiver_plots(self, icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward):
         """
-        Show the quiver plot in a new window added to the left of the main window with the image as the background.
-
-        Parameters:
-        icp_points (list): List of ICP points with 'x' and 'y'.
-        predicted_X, predicted_Y (np.array): Predicted values for X and Y.
-        actual_X, actual_Y (np.array): Actual values for X and Y.
+        Show two quiver plots side-by-side in a PyQt canvas.
+        One for the forward transformation and one for the backward transformation.
         """
-        if not hasattr(self, 'image_viewer') or self.image_viewer.pixmap is None:
-            QMessageBox.warning(self, "Warning", "No image loaded to display as background.")
-            return
 
-        # Convert the loaded QPixmap to a NumPy array for plotting
+        # Create a new dialog for the plots
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Quiver Plots")
+        dialog.setMinimumSize(1200, 600)  # Adjusted size for side-by-side plots
+
+        # Create a QLabel to display the plots
+        label = QLabel(dialog)
+
+        # Create the figure for the plots
+        fig, axes = plt.subplots(1, 2, figsize=(15, 8))
+        fig.patch.set_facecolor('#2E2E2E')  # Dark gray background for the figure
+
+        # Forward transformation plot
+        x_forward = [point['x'] for point in icp_points]
+        y_forward = [point['y'] for point in icp_points]
+        u_forward = predicted_x_forward - np.array([point['x'] for point in icp_points])
+        v_forward = predicted_y_forward - np.array([point['y'] for point in icp_points])
+
         image = self.image_viewer.pixmap.toImage()
         image_array = np.array(image.bits()).reshape(image.height(), image.width(), 4)[..., :3]
 
-        # Generate the quiver plot using matplotlib
-        fig, ax = plt.subplots(figsize=(10, 8))  # Increased figure size
-        fig.patch.set_facecolor('black')  # Set the background color of the plot area
-
         # Display the image as the background
-        ax.imshow(image_array, extent=[0, image.width(), 0, image.height()], origin='upper')
+        axes[0].imshow(image_array, extent=[0, image.width(), 0, image.height()], origin='upper')
+        axes[0].quiver(x_forward, y_forward, u_forward, v_forward, angles='xy', scale_units='xy', scale=1, color='cyan')
+        axes[0].set_title("Forward Transformation", color='white')
+        axes[0].set_xlabel("x", color='white')
+        axes[0].set_ylabel("y", color='white')
+        axes[0].tick_params(axis='both', colors='white')
+        axes[0].grid(color='gray', linestyle='--', linewidth=0.5)
 
-        # Extract ICP points and calculate quiver vectors
-        x = [point['x'] for point in icp_points]
-        y = [point['y'] for point in icp_points]
-        u = predicted_X - actual_X
-        v = predicted_Y - actual_Y
+        # Backward transformation plot
+        x_backward = [point['X'] for point in icp_points]
+        y_backward = [point['Y'] for point in icp_points]
+        u_backward = predicted_x_backward - np.array([point['X'] for point in icp_points])
+        v_backward = predicted_y_backward - np.array([point['Y'] for point in icp_points])
 
-        # Overlay the quiver plot
-        ax.quiver(x, y, u, v, angles='xy', scale_units='xy', scale=1, color='red')
+        axes[1].quiver(x_backward, y_backward, u_backward, v_backward, angles='xy', scale_units='xy', scale=1, color='orange')
+        axes[1].set_title("Backward Transformation", color='white')
+        axes[1].set_xlabel("X", color='white')
+        axes[1].set_ylabel("Y", color='white')
+        axes[1].tick_params(axis='both', colors='white')
+        axes[1].grid(color='gray', linestyle='--', linewidth=0.5)
 
-        # Customize plot appearance
-        ax.set_title("Quiver Plot with Image Background", color='white')
-        ax.set_xlabel("X", color='white')
-        ax.set_ylabel("Y", color='white')
-        ax.tick_params(axis='both', colors='white')
-
-        # Save the plot to a temporary buffer
+        # Render the plot onto a QPixmap
         fig.canvas.draw()
         width, height = fig.canvas.get_width_height()
         plot_data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
-
-        # Close the matplotlib figure
         plt.close(fig)
 
-        # Convert the plot to a QPixmap
+        # Convert the plot data to a QImage and then a QPixmap
         plot_image = QImage(plot_data, width, height, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(plot_image)
 
-        # Create a new dialog for the plot
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Quiver Plot")
-        dialog.setMinimumSize(800, 600)  # Increased dialog size
-
-        # Create a QLabel to display the pixmap
-        label = QLabel(dialog)
         label.setPixmap(pixmap)
         label.setAlignment(Qt.AlignCenter)
 
@@ -480,6 +603,27 @@ class ToolBoxMainWindow(QMainWindow):
 
         # Show the dialog
         dialog.exec()
+        
+    def save_project_dialog(self):
+        """Open a file dialog to save the project."""
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "Project Files (*.proj)")
+        if filename:
+            self.save_project(filename)
+
+    def load_project_dialog(self):
+        """Open a file dialog to load the project."""
+        filename, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "Project Files (*.proj)")
+        if filename:
+            self.load_project(filename)
+
+    def update_ui_from_project(self):
+        """Update the UI based on the state of the Project instance."""
+        if self.project.image_path:
+            self.open_image()  # Reload the image
+        if self.project.gcp_points:
+            self.load_gcp_file()  # Reload GCP points
+        if self.project.degree:
+            self.degree_slider.setValue(self.project.degree)
     
     def toggle_table_visibility(self):
         """

@@ -5,7 +5,8 @@ class Polynomial:
         self.gcp_points = gcp_points
         self.degree = degree
         self.normalization_factors = None
-        self.design_matrix = None
+        self.design_matrix_forward = None
+        self.design_matrix_backward = None
 
     def normalize_data(self):
         """Normalize the GCP data and keep normalization factors."""
@@ -39,51 +40,74 @@ class Polynomial:
                 A[:, idx] = (x ** i) * (y ** j)
                 idx += 1
 
-        self.design_matrix = A
         return A
 
     def regress_polynomial(self):
-        """Perform polynomial regression using the design matrix."""
+        """Perform polynomial regression for both forward and backward transformations."""
         x, y, X, Y = self.normalize_data()
-        A = self.build_design_matrix(x, y)
 
-        # Solve for the coefficients
-        coeffs_X, _, _, _ = np.linalg.lstsq(A, X, rcond=None)
-        coeffs_Y, _, _, _ = np.linalg.lstsq(A, Y, rcond=None)
+        # Forward transformation: Regress x = F(X, Y), y = G(X, Y)
+        A_forward = self.build_design_matrix(X, Y)
+        self.design_matrix_forward = A_forward
 
-        return coeffs_X, coeffs_Y
+        coeffs_x_forward, _, _, _ = np.linalg.lstsq(A_forward, x, rcond=None)
+        coeffs_y_forward, _, _, _ = np.linalg.lstsq(A_forward, y, rcond=None)
 
-    def evaluate(self, coeffs_X, coeffs_Y, points):
+        # Backward transformation: Regress X = F'(x, y), Y = G'(x, y)
+        A_backward = self.build_design_matrix(x, y)
+        self.design_matrix_backward = A_backward
+
+        coeffs_X_backward, _, _, _ = np.linalg.lstsq(A_backward, X, rcond=None)
+        coeffs_Y_backward, _, _, _ = np.linalg.lstsq(A_backward, Y, rcond=None)
+
+        return coeffs_x_forward, coeffs_y_forward, coeffs_X_backward, coeffs_Y_backward
+
+    def evaluate(self, coeffs, points, forward=True):
         """
-        Evaluate the polynomial at given points.
+        Evaluate the polynomial at given points for either forward or backward transformation.
 
         Parameters:
-        coeffs_X, coeffs_Y (np.array): Polynomial coefficients.
-        points (list of dict): List of points with 'x' and 'y'.
+        coeffs (tuple): Polynomial coefficients (coeffs_x, coeffs_y or coeffs_X, coeffs_Y).
+        points (list of dict): List of points with 'x', 'y' or 'X', 'Y'.
+        forward (bool): If True, use forward transformation; else use backward.
 
         Returns:
-        evaluated_X, evaluated_Y (np.array): Evaluated X and Y values.
+        evaluated_1, evaluated_2 (np.array): Evaluated values.
         """
-        x = np.array([point['x'] for point in points])
-        y = np.array([point['y'] for point in points])
+        coeffs_1, coeffs_2 = coeffs
 
-        # Normalize inputs
-        x = (x - self.normalization_factors["x_mean"]) / self.normalization_factors["x_std"]
-        y = (y - self.normalization_factors["y_mean"]) / self.normalization_factors["y_std"]
+        if forward:
+            x = np.array([point['X'] for point in points])
+            y = np.array([point['Y'] for point in points])
+
+            # Normalize inputs
+            x = (x - self.normalization_factors["X_mean"]) / self.normalization_factors["X_std"]
+            y = (y - self.normalization_factors["Y_mean"]) / self.normalization_factors["Y_std"]
+        else:
+            x = np.array([point['x'] for point in points])
+            y = np.array([point['y'] for point in points])
+
+            # Normalize inputs
+            x = (x - self.normalization_factors["x_mean"]) / self.normalization_factors["x_std"]
+            y = (y - self.normalization_factors["y_mean"]) / self.normalization_factors["y_std"]
 
         A = self.build_design_matrix(x, y)
 
-        evaluated_X = A @ coeffs_X
-        evaluated_Y = A @ coeffs_Y
+        evaluated_1 = A @ coeffs_1
+        evaluated_2 = A @ coeffs_2
 
         # Denormalize outputs
-        evaluated_X = (evaluated_X * self.normalization_factors["X_std"]) + self.normalization_factors["X_mean"]
-        evaluated_Y = (evaluated_Y * self.normalization_factors["Y_std"]) + self.normalization_factors["Y_mean"]
+        if forward:
+            evaluated_1 = (evaluated_1 * self.normalization_factors["x_std"]) + self.normalization_factors["x_mean"]
+            evaluated_2 = (evaluated_2 * self.normalization_factors["y_std"]) + self.normalization_factors["y_mean"]
+        else:
+            evaluated_1 = (evaluated_1 * self.normalization_factors["X_std"]) + self.normalization_factors["X_mean"]
+            evaluated_2 = (evaluated_2 * self.normalization_factors["Y_std"]) + self.normalization_factors["Y_mean"]
 
-        return evaluated_X, evaluated_Y
+        return evaluated_1, evaluated_2
 
-    def rmse(self, predicted_X, predicted_Y, actual_X, actual_Y):
+    def rmse(self, predicted_1, predicted_2, actual_1, actual_2):
         """Calculate the RMSE."""
-        rmse_X = np.sqrt(np.mean((predicted_X - actual_X) ** 2))
-        rmse_Y = np.sqrt(np.mean((predicted_Y - actual_Y) ** 2))
-        return rmse_X, rmse_Y
+        rmse_1 = np.sqrt(np.mean((predicted_1 - actual_1) ** 2))
+        rmse_2 = np.sqrt(np.mean((predicted_2 - actual_2) ** 2))
+        return rmse_1, rmse_2
