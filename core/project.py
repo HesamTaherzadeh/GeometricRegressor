@@ -18,6 +18,7 @@ class Project:
         self.icp_points = None
         self.degree = None
         self.image_path = None
+        self.normalization_factor = None
 
     def save_to_file(self, filename):
         """Save the current state of the Project instance to a file using pickle."""

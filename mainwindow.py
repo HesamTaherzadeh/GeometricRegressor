@@ -88,6 +88,7 @@ class ToolBoxMainWindow(QMainWindow):
         # Enable dragging of the window
         self.draggable = False
         self.offset = None
+        self.image = None
         
         # Create the main widget and set its layout
         main_widget = QWidget(self)
@@ -233,7 +234,7 @@ class ToolBoxMainWindow(QMainWindow):
 
         # Create the worker and thread
         self.resampling_worker = ResamplingWorker(
-            image_scene=self.image_scene,
+            image=self.image,
             gcp_points=gcp_points,
             icp_points=self.get_icp_points(),
             step=step,
@@ -251,7 +252,7 @@ class ToolBoxMainWindow(QMainWindow):
         self.resampling_thread.finished.connect(self.resampling_thread.deleteLater)
         self.resampling_worker.error.connect(self.handle_resampling_error)
         self.resampling_worker.progress.connect(self.progress_dialog.setValue)
-        self.resampling_worker.resampled.connect(self.show_resampled_grid)  # Connect resampled signal
+        self.resampling_worker.resampled.connect(self.show_resampled_grid)
 
         # Handle cancellation
         self.progress_dialog.canceled.connect(self.resampling_worker.cancel)
@@ -266,54 +267,58 @@ class ToolBoxMainWindow(QMainWindow):
 
     def show_resampled_grid(self, grd_image):
         """
-        Display the resampled grid image in a new dialog window.
+        Display the resampled grid image in a new dialog window 
+        at full size (e.g. 6000x6000) with scrollbars.
         """
         try:
-            # Normalize the resampled grid for visualization
-            min_val, max_val = np.min(grd_image), np.max(grd_image)
-            if max_val == min_val:
-                print("Warning: grd_image has uniform values. Normalizing to zeros.")
-                normalized_image = np.zeros_like(grd_image, dtype=np.uint8)
+            # If you have an RGB image, you may convert or keep as RGB888.
+            # In this example, we assume single-channel grayscale is fine:
+            if grd_image.ndim == 3 and grd_image.shape[2] == 3:
+                # Convert RGB to single-channel grayscale by average
+                grd_image = grd_image.mean(axis=2).astype(np.uint8)
+            
+            # Extract shape
+            if grd_image.ndim == 3:
+                height, width, _ = grd_image.shape
             else:
-                normalized_image = ((grd_image - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+                height, width = grd_image.shape
 
-            # Ensure normalized_image is valid
-            if normalized_image is None or normalized_image.size == 0:
-                raise ValueError("Normalized image is empty or invalid.")
+            bytes_per_line = width  # For 8-bit grayscale
 
-            # Convert to QPixmap
-            height, width = normalized_image.shape
-            bytes_per_line = width
-            qimage = QImage(normalized_image.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
+            # Create QImage in 8-bit grayscale
+            qimage = QImage(grd_image.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
 
-            if qimage.isNull():
-                raise ValueError("Failed to create QImage from normalized image.")
-
+            # Convert to QPixmap without scaling
             pixmap = QPixmap.fromImage(qimage)
 
-            if pixmap.isNull():
-                raise ValueError("Failed to create QPixmap from QImage.")
-
-            # Create a dialog for the resampled grid
+            # --- Build the UI with a scroll area ---
             dialog = QDialog(self)
-            dialog.setWindowTitle("Resampled Grid Image")
-            dialog.setMinimumSize(800, 600)
+            dialog.setWindowTitle("Resampled Grid Image (Scrollable)")
 
-            # Create a QLabel to display the resampled grid
-            label = QLabel(dialog)
+            # Create a QLabel to hold the pixmap
+            label = QLabel()
             label.setPixmap(pixmap)
             label.setAlignment(Qt.AlignCenter)
 
-            # Set up the dialog layout
-            layout = QVBoxLayout()
-            layout.addWidget(label)
+            # Put the label inside a QScrollArea so we can scroll around
+            scroll_area = QScrollArea()
+            scroll_area.setWidget(label)
+            scroll_area.setWidgetResizable(True)
+
+            # Create a layout for the dialog
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(scroll_area)
             dialog.setLayout(layout)
+
+            # Set a suitable initial size
+            dialog.resize(800, 600)
 
             # Show the dialog
             dialog.exec()
 
         except Exception as e:
             print(f"Error displaying resampled grid: {e}")
+
 
     
     def sizeHint(self):
@@ -343,6 +348,7 @@ class ToolBoxMainWindow(QMainWindow):
         Opens a file dialog to select an image and displays it in the image viewer.
         """
         image_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)")
+        self.image_path = image_path
         if image_path:
             pixmap = QPixmap(image_path)
             self.image_scene.clear()
@@ -509,6 +515,7 @@ class ToolBoxMainWindow(QMainWindow):
 
         self.project.forward_coeffs = (coeffs_x_forward, coeffs_y_forward)
         self.project.backward_coeffs = (coeffs_x_backward, coeffs_y_backward)
+        self.project.normalization_factor = polynomial.normalization_factors
         self.project.degree = degree
 
         # Calculate RMSE for forward and backward transformations
@@ -559,6 +566,7 @@ class ToolBoxMainWindow(QMainWindow):
         v_forward = predicted_y_forward - np.array([point['y'] for point in icp_points])
 
         image = self.image_viewer.pixmap.toImage()
+        self.image = image 
         image_array = np.array(image.bits()).reshape(image.height(), image.width(), 4)[..., :3]
 
         # Display the image as the background
