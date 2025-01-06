@@ -15,6 +15,44 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from core.project import Project
+from core.piecewise import SplitLineWindow
+
+class MagnifierGraphicsView(QGraphicsView):
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setScene(scene)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+        self.main = parent  
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+
+        if not self.main or not self.main.split_line_mode:
+            return  
+
+        if event.button() == Qt.LeftButton:
+            scene_pos = self.mapToScene(event.pos())
+            x, y = scene_pos.x(), scene_pos.y()
+
+            self.main.line_points.append((x, y))
+
+            if len(self.main.line_points) == 2:
+                (x1, y1), (x2, y2) = self.main.line_points
+
+                pen = QPen(Qt.red, 50)
+                line_item = self.scene().addLine(x1, y1, x2, y2, pen)
+
+                self.main.perform_split_line_regression(x1, y1, x2, y2)
+
+                self.main.split_line_mode = False
+                self.main.line_points = [] 
+
 
 class HoverButton(QPushButton):
     def __init__(self, icon_path, parent=None):
@@ -89,7 +127,9 @@ class ToolBoxMainWindow(QMainWindow):
         self.draggable = False
         self.offset = None
         self.image = None
-        
+        self.split_line_mode = False  
+        self.line_points = []      
+            
         # Create the main widget and set its layout
         main_widget = QWidget(self)
         self.main_layout = QHBoxLayout(main_widget)
@@ -98,7 +138,7 @@ class ToolBoxMainWindow(QMainWindow):
         # Left layout: Image display area
         image_layout = QVBoxLayout()
         self.image_scene = QGraphicsScene()
-        self.image_viewer = MagnifierGraphicsView(self.image_scene)
+        self.image_viewer = MagnifierGraphicsView(self.image_scene, self)
         self.image_viewer.setScene(self.image_scene)
         self.image_viewer.setStyleSheet("border: 0.5px solid gray; background-color: transparent;")
         image_layout.addWidget(self.image_viewer)
@@ -148,6 +188,10 @@ class ToolBoxMainWindow(QMainWindow):
         self.forward_button = HoverButton("ui/icon/regress.png")  # "Forward" button
         self.forward_button.clicked.connect(self.perform_regression)
         self.right_layout.addWidget(self.forward_button)
+        
+        self.split_line_button = HoverButton("ui/icon/piece.png", self)
+        self.split_line_button.clicked.connect(self.enable_split_line_mode)
+        self.right_layout.addWidget(self.split_line_button)
         
         self.resampling_button = HoverButton("ui/icon/resample.png", self)  # Use your resampling icon
         self.resampling_button.clicked.connect(self.perform_resampling)
@@ -207,6 +251,46 @@ class ToolBoxMainWindow(QMainWindow):
         self.right_layout.addWidget(circle_widget)
         self.main_layout.addLayout(self.right_layout)
         self.main_layout.addLayout(last_layout)
+    
+    def open_split_line_window(self):
+
+        if not self.image_viewer.pixmap:
+            QMessageBox.warning(self, "Warning", "Please load an image before splitting.")
+            return
+
+        gcp_points = self.get_gcp_points()
+        icp_points = self.get_icp_points()
+
+        # Create the line-split dialog
+        dialog = SplitLineWindow(
+            qpixmap=self.image_viewer.pixmap, 
+            gcp_points=gcp_points,
+            icp_points=icp_points,
+            scene=self.image_scene,
+            degree=self.degree_slider.value(),
+            parent=self
+        )
+        dialog.exec()
+
+
+    def enable_split_line_mode(self):
+        """
+        Enables a mode in which the user can click two points on the image
+        to define a line that splits the image into two parts.
+        """
+        if not self.image_scene.items():
+            QMessageBox.warning(self, "Warning", "Please load an image first.")
+            return
+
+        # Clear any previous line / points
+        self.line_points.clear()
+        self.split_line_mode = True
+
+        QMessageBox.information(
+            self, "Split-Line Mode",
+            "Click two points on the image to define a line that will split the image."
+        )
+
 
     def perform_resampling(self):
         """
@@ -228,7 +312,7 @@ class ToolBoxMainWindow(QMainWindow):
             return
 
         # Create a progress dialog
-        self.progress_dialog = QProgressDialog("Resampling in progress...", "Cancel", 0, 100, self)
+        self.progress_dialog = QProgressDialog("Resampling in progress...", "", 0, 100, self)
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.show()
 
@@ -242,22 +326,18 @@ class ToolBoxMainWindow(QMainWindow):
         )
         self.resampling_thread = QThread()
 
-        # Move the worker to the thread
         self.resampling_worker.moveToThread(self.resampling_thread)
 
-        # Connect signals and slots
         self.resampling_thread.started.connect(self.resampling_worker.run)
         self.resampling_worker.finished.connect(self.resampling_thread.quit)
+        self.progress_dialog.canceled.connect(self.resampling_worker.cancel)
+        self.progress_dialog.rejected.connect(self.resampling_worker.cancel)
         self.resampling_worker.finished.connect(self.resampling_worker.deleteLater)
         self.resampling_thread.finished.connect(self.resampling_thread.deleteLater)
         self.resampling_worker.error.connect(self.handle_resampling_error)
         self.resampling_worker.progress.connect(self.progress_dialog.setValue)
         self.resampling_worker.resampled.connect(self.show_resampled_grid)
 
-        # Handle cancellation
-        self.progress_dialog.canceled.connect(self.resampling_worker.cancel)
-
-        # Start the thread
         self.resampling_thread.start()
 
     def handle_resampling_error(self, error_message):
@@ -266,54 +346,42 @@ class ToolBoxMainWindow(QMainWindow):
         self.progress_dialog.close()
 
     def show_resampled_grid(self, grd_image):
-        """
-        Display the resampled grid image in a new dialog window 
-        at full size (e.g. 6000x6000) with scrollbars.
-        """
         try:
-            # If you have an RGB image, you may convert or keep as RGB888.
-            # In this example, we assume single-channel grayscale is fine:
+            if np.all(grd_image == 0):
+                return 
+            
             if grd_image.ndim == 3 and grd_image.shape[2] == 3:
                 # Convert RGB to single-channel grayscale by average
                 grd_image = grd_image.mean(axis=2).astype(np.uint8)
             
-            # Extract shape
             if grd_image.ndim == 3:
                 height, width, _ = grd_image.shape
             else:
                 height, width = grd_image.shape
 
-            bytes_per_line = width  # For 8-bit grayscale
+            bytes_per_line = width 
 
-            # Create QImage in 8-bit grayscale
             qimage = QImage(grd_image.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
 
-            # Convert to QPixmap without scaling
             pixmap = QPixmap.fromImage(qimage)
 
-            # --- Build the UI with a scroll area ---
             dialog = QDialog(self)
             dialog.setWindowTitle("Resampled Grid Image (Scrollable)")
 
-            # Create a QLabel to hold the pixmap
             label = QLabel()
             label.setPixmap(pixmap)
             label.setAlignment(Qt.AlignCenter)
 
-            # Put the label inside a QScrollArea so we can scroll around
             scroll_area = QScrollArea()
             scroll_area.setWidget(label)
             scroll_area.setWidgetResizable(True)
 
-            # Create a layout for the dialog
             layout = QVBoxLayout(dialog)
             layout.addWidget(scroll_area)
             dialog.setLayout(layout)
 
-            # Set a suitable initial size
-            dialog.resize(800, 600)
+            dialog.resize(6000, 6000)
 
-            # Show the dialog
             dialog.exec()
 
         except Exception as e:
@@ -355,7 +423,6 @@ class ToolBoxMainWindow(QMainWindow):
             pixmap_item = QGraphicsPixmapItem(pixmap)
             self.image_scene.addItem(pixmap_item)
             self.image_viewer.setScene(self.image_scene)
-            self.image_viewer.set_image(pixmap)
             self.image_viewer.fitInView(self.image_scene.sceneRect(), Qt.KeepAspectRatio)
 
 
@@ -653,6 +720,114 @@ class ToolBoxMainWindow(QMainWindow):
         if event.button() == Qt.LeftButton:
             self.draggable = False
             self.offset = None
+            
+    def perform_split_line_regression(self, x1, y1, x2, y2):
+        """
+        Splits GCP/ICP points based on which side of the line (x1,y1)->(x2,y2) they fall on.
+        Performs polynomial regression separately for each side, and displays RMSE results.
+        """
+        # 1) Grab GCP/ICP from the table
+        gcp_points = self.get_gcp_points()
+        icp_points = self.get_icp_points()
+        degree = self.degree_slider.value()
+
+        if not gcp_points:
+            QMessageBox.warning(self, "Warning", "No GCP points available.")
+            return
+        
+        if not icp_points:
+            QMessageBox.warning(self, "Warning", "No ICP points available.")
+            return
+
+        # 2) Separate GCPs into two sides
+        gcp_side_a = []
+        gcp_side_b = []
+        for gcp in gcp_points:
+            sign = self._side_of_line(gcp["x"], gcp["y"], x1, y1, x2, y2)
+            if sign >= 0:
+                gcp_side_a.append(gcp)
+            else:
+                gcp_side_b.append(gcp)
+
+        # 3) Separate ICPs into two sides
+        icp_side_a = []
+        icp_side_b = []
+        for icp in icp_points:
+            sign = self._side_of_line(icp["x"], icp["y"], x1, y1, x2, y2)
+            if sign >= 0:
+                icp_side_a.append(icp)
+            else:
+                icp_side_b.append(icp)
+
+        # 4) Regress & compute RMSE
+        rmseA_forward, rmseA_backward = self._regress_and_rmse(gcp_side_a, icp_side_a, degree)
+        rmseB_forward, rmseB_backward = self._regress_and_rmse(gcp_side_b, icp_side_b, degree)
+
+        # 5) Show results
+        text_lines = []
+        text_lines.append("<b>Split Line Regression Results</b><br>")
+
+        if rmseA_forward is None:
+            text_lines.append("<b>Side A</b>: Not enough GCP/ICP for regression.<br><br>")
+        else:
+            fx, fy = rmseA_forward
+            bx, by = rmseA_backward
+            text_lines.append(
+                f"<b>Side A</b> (GCPs={len(gcp_side_a)}, ICPs={len(icp_side_a)})<br>"
+                f"Forward RMSE: X={fx:.4f}, Y={fy:.4f}<br>"
+                f"Backward RMSE: X={bx:.4f}, Y={by:.4f}<br><br>"
+            )
+
+        if rmseB_forward is None:
+            text_lines.append("<b>Side B</b>: Not enough GCP/ICP for regression.<br><br>")
+        else:
+            fx, fy = rmseB_forward
+            bx, by = rmseB_backward
+            text_lines.append(
+                f"<b>Side B</b> (GCPs={len(gcp_side_b)}, ICPs={len(icp_side_b)})<br>"
+                f"Forward RMSE: X={fx:.4f}, Y={fy:.4f}<br>"
+                f"Backward RMSE: X={bx:.4f}, Y={by:.4f}<br><br>"
+            )
+
+        QMessageBox.information(self, "Split Regression RMSE", "".join(text_lines))
+
+    def _regress_and_rmse(self, gcp_list, icp_list, degree):
+        """
+        Utility to regress a polynomial from gcp_list and evaluate RMSE on icp_list.
+        Returns: ( (rmseX_fwd, rmseY_fwd), (rmseX_bwd, rmseY_bwd) ) or (None, None) if not enough points.
+        """
+        if len(gcp_list) < 2 or len(icp_list) < 1:
+            return None, None  # Not enough data
+
+        poly = Polynomial(gcp_list, degree)
+        fx, fy, bx, by = poly.regress_polynomial()
+
+        # Evaluate forward polynomial
+        px_fwd, py_fwd = poly.evaluate((fx, fy), icp_list, forward=True)
+        # Evaluate backward polynomial
+        px_bwd, py_bwd = poly.evaluate((bx, by), icp_list, forward=False)
+
+        # Compute forward RMSE
+        actual_x = np.array([p["x"] for p in icp_list])
+        actual_y = np.array([p["y"] for p in icp_list])
+        rmseX_fwd, rmseY_fwd = poly.rmse(px_fwd, py_fwd, actual_x, actual_y)
+
+        # Compute backward RMSE
+        actual_X = np.array([p["X"] for p in icp_list])
+        actual_Y = np.array([p["Y"] for p in icp_list])
+        rmseX_bwd, rmseY_bwd = poly.rmse(px_bwd, py_bwd, actual_X, actual_Y)
+
+        return (rmseX_fwd, rmseY_fwd), (rmseX_bwd, rmseY_bwd)
+    
+    def _side_of_line(self, px, py, x1, y1, x2, y2):
+        """
+        Returns the signed cross product to indicate which side
+        of the line (x1,y1)->(x2,y2) the point (px,py) is on.
+        Positive => left side, negative => right side, 0 => on the line.
+        """
+        return (px - x1) * (y2 - y1) - (py - y1) * (x2 - x1)
+
+
 
 if __name__ == "__main__":
     import sys
