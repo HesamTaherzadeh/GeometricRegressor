@@ -1,104 +1,111 @@
-from PySide6.QtCore import Qt, QRectF, QPoint
-from PySide6.QtGui import QPainter, QPixmap, QPen, QColor, QPainterPath
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsView, QWidget
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QPointF
+from PySide6.QtGui import QPainter, QPixmap, QBrush, QColor, QPainterPath
 
-class MagnifierGraphicsView(QGraphicsView):
-    def __init__(self, scene):
-        super().__init__(scene)
-        self.image_item = None
+class CircularMagnifier(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(150, 150)  # Size of the circular magnifier
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground)
         self.pixmap = None
-        self.magnifier_active = False
-        self.magnifier_pos = QPoint(0, 0)
-        self.magnifier_size = 150  # Diameter of the magnifier
-        self.magnification_factor = 2.0
+        self.scene_point = QPointF()
+        self.zoom_factor = 2
 
-    def set_image(self, pixmap):
-        """Set the image to display and magnify."""
+    def set_pixmap_and_position(self, pixmap, scene_point):
+        """
+        Updates the magnifier with a new pixmap and scene point.
+        """
         self.pixmap = pixmap
-        if self.image_item:
-            self.scene().removeItem(self.image_item)
-        self.image_item = self.scene().addPixmap(self.pixmap)
-
-    def mousePressEvent(self, event):
-        """Activate the magnifier on right-click."""
-        if event.button() == Qt.RightButton and self.pixmap:
-            self.magnifier_active = True
-            self.magnifier_pos = event.pos()
-            self.viewport().update()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        """Update the magnifier position on mouse move."""
-        if self.magnifier_active:
-            self.magnifier_pos = event.pos()
-            self.viewport().update()
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        """Deactivate the magnifier on releasing the right mouse button."""
-        if event.button() == Qt.RightButton:
-            self.magnifier_active = False
-            self.viewport().update()
-        super().mouseReleaseEvent(event)
+        self.scene_point = scene_point
+        self.update()
 
     def paintEvent(self, event):
-        """Draw the image and apply the magnifier effect."""
-        super().paintEvent(event)
-        if self.magnifier_active and self.pixmap:
-            painter = QPainter(self.viewport())
-            painter.setRenderHint(QPainter.Antialiasing)
+        if not self.pixmap:
+            return
 
-            # Map the mouse position to scene coordinates
-            scene_pos = self.mapToScene(self.magnifier_pos)
-            center_x = int(scene_pos.x())
-            center_y = int(scene_pos.y())
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
 
-            # Calculate the zoomed region
-            zoomed_rect = QRectF(
-                center_x - self.magnifier_size / (2 * self.magnification_factor),
-                center_y - self.magnifier_size / (2 * self.magnification_factor),
-                self.magnifier_size / self.magnification_factor,
-                self.magnifier_size / self.magnification_factor,
-            )
+        # Draw circular background
+        size = self.size()
+        radius = size.width() // 2
+        painter.setBrush(QBrush(Qt.white))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(0, 0, size.width(), size.height())
 
-            # Ensure zoomed_rect is within pixmap bounds
-            if zoomed_rect.left() < 0 or zoomed_rect.top() < 0 or \
-               zoomed_rect.right() > self.pixmap.width() or \
-               zoomed_rect.bottom() > self.pixmap.height():
-                return
+        # Create a circular clipping path
+        clip_path = QPainterPath()
+        clip_path.addEllipse(0, 0, size.width(), size.height())
+        painter.setClipPath(clip_path)
 
-            # Extract and scale the zoomed region
-            zoomed_pixmap = self.pixmap.copy(zoomed_rect.toRect())
-            zoomed_pixmap = zoomed_pixmap.scaled(
-                self.magnifier_size, self.magnifier_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
+        # Draw zoomed-in image
+        source_rect = QRect(
+            int(self.scene_point.x() - radius / self.zoom_factor),
+            int(self.scene_point.y() - radius / self.zoom_factor),
+            int(radius / self.zoom_factor * 4),
+            int(radius / self.zoom_factor * 4),
+        )
+        target_rect = QRect(0, 0, size.width(), size.height())
+        painter.drawPixmap(target_rect, self.pixmap, source_rect)
 
-            # Draw the circular magnifier
-            path = QPainterPath()
-            path.addEllipse(
-                self.magnifier_pos.x() - self.magnifier_size // 2,
-                self.magnifier_pos.y() - self.magnifier_size // 2,
-                self.magnifier_size,
-                self.magnifier_size,
-            )
-            painter.setClipPath(path)
+        # Ensure the painter is properly ended
+        painter.end()
 
-            # Draw the magnified content
-            painter.drawPixmap(
-                self.magnifier_pos.x() - self.magnifier_size // 2,
-                self.magnifier_pos.y() - self.magnifier_size // 2,
-                zoomed_pixmap,
-            )
 
-            # Draw the magnifier border
-            painter.setClipping(False)
-            pen = QPen(QColor(0, 0, 0, 255), 3)
-            painter.setPen(pen)
-            painter.drawEllipse(
-                self.magnifier_pos.x() - self.magnifier_size // 2,
-                self.magnifier_pos.y() - self.magnifier_size // 2,
-                self.magnifier_size,
-                self.magnifier_size,
-            )
+class MagnifierGraphicsView(QGraphicsView):
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setScene(scene)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+        self.main = parent
+        self.pixmap = None
+        self.magnifier = CircularMagnifier(self)
+        self.magnifier.hide()
+        self.is_magnifier_active = False
 
-            painter.end()
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+
+    def set_pixmap(self, pixmap):
+        """
+        Set the pixmap for the view, typically an image displayed in the scene.
+        """
+        self.pixmap = pixmap
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+
+        if event.button() == Qt.RightButton and self.pixmap:
+            self.is_magnifier_active = True
+            self.update_magnifier(event.pos())
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        if self.is_magnifier_active and self.pixmap:
+            self.update_magnifier(event.pos())
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.RightButton:
+            self.is_magnifier_active = False
+            self.magnifier.hide()
+
+    def update_magnifier(self, cursor_pos):
+        """
+        Updates the magnifier's position and content based on the cursor position.
+        """
+        scene_pos = self.mapToScene(cursor_pos)
+
+        # Position the magnifier slightly to the right and below the cursor
+        offset = QPoint(20, 20)
+        magnifier_pos = cursor_pos + offset - QPoint(self.magnifier.width() // 2, self.magnifier.height() // 2)
+
+        # Update the magnifier's content and position
+        self.magnifier.set_pixmap_and_position(self.pixmap, scene_pos)
+        self.magnifier.move(magnifier_pos)
+        self.magnifier.show()
