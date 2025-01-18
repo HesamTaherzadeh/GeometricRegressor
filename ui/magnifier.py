@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QGraphicsView, QWidget, QGraphicsLineItem
-from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QPointF
-from PySide6.QtGui import QPainter, QPixmap, QBrush, QColor, QPainterPath, QPen
+from PySide6.QtWidgets import QMessageBox, QGraphicsView, QWidget, QGraphicsLineItem
+from PySide6.QtCore import Qt, QPoint, QRect, QPointF
+from PySide6.QtGui import QPainter, QBrush, QColor, QPainterPath, QPen
 
 class CircularMagnifier(QWidget):
     def __init__(self, parent=None):
@@ -84,40 +84,63 @@ class MagnifierGraphicsView(QGraphicsView):
         if event.button() == Qt.RightButton and self.pixmap:
             self.is_magnifier_active = True
             self.update_magnifier(event.pos())
-                            
+        
+        if event.button() == Qt.LeftButton and self.parent.waiting_for_point_pick:
+            scene_pos = self.mapToScene(event.pos())
+
+            # Convert the nearest ICP to GCP
+            self.parent.convert_nearest_icp_to_gcp(scene_pos)
+                                
         if self.parent.split_line_mode and event.button() == Qt.LeftButton:
             scene_pos = self.parent.image_viewer.mapToScene(event.pos())
             self.parent.line_points.append((scene_pos.x(), scene_pos.y()))
 
             if len(self.parent.line_points) == 1:
-                self.parent.image_scene.addEllipse(scene_pos.x() - 3, scene_pos.y() - 3, 6, 6, QPen(Qt.red), Qt.red)
+                self.parent.image_scene.addEllipse(
+                    scene_pos.x() - 3, scene_pos.y() - 3, 6, 6, QPen(Qt.red), Qt.red
+                )
             elif len(self.parent.line_points) == 2:
                 x1, y1 = map(int, self.parent.line_points[0])
                 x2, y2 = map(int, self.parent.line_points[1])
-                pen = QPen(Qt.blue)
-                pen.setWidth(100)
+                pen = QPen(self.get_next_color())
+                pen.setWidth(10)
                 self.parent.image_scene.addLine(x1, y1, x2, y2, pen)
-                self.parent.image_scene.update()  
-
-                self.parent.perform_split_line_regression(x1, y1, x2, y2)
-                self.parent.split_line_mode = False
+                self.parent.lines.append((x1, y1, x2, y2))  # Store the line
+                self.parent.image_scene.update()
                 self.parent.line_points.clear()
         else:
             super().mousePressEvent(event)
+
+            
+    def get_next_color(self):
+        """
+        Cycles through a predefined list of colors to use for drawing lines.
+        """
+        if not hasattr(self, "_color_index"):
+            self._color_index = 0  
+
+        # Define a list of colors to cycle through
+        colors = [Qt.red, Qt.green, Qt.blue, Qt.yellow, Qt.cyan, Qt.magenta]
+
+        # Get the current color and update the index
+        color = colors[self._color_index]
+        self._color_index = (self._color_index + 1) % len(colors)  # Cycle back to the start
+        return color
+
     
     def keyPressEvent(self, event):
-        """
-        Handles key press events to remove lines when 'C' is pressed.
-        """
-        if event.key() == Qt.Key_C:
-            # Clear all line items from the scene
-            for item in self.parent.image_scene.items():
-                if isinstance(item, QGraphicsLineItem):  # Check if the item is a line
-                    self.parent.image_scene.removeItem(item)
-            self.parent.image_scene.update()  # Refresh the scene
+        if event.key() == Qt.Key_X:
+            self.parent.finalize_lines()
+        elif event.key() == Qt.Key_C:
+            self.parent.clear_lines()
+        if event.key() == Qt.Key_E:
+            QMessageBox.information(self, "Info", "Pick a point to convert the nearest ICP to GCP. Press E again to exit editing mode.")
+            if self.parent.waiting_for_point_pick:
+                self.parent.waiting_for_point_pick = False
+            else:
+                self.parent.waiting_for_point_pick = True
         else:
             super().keyPressEvent(event)
-
 
 
     def mouseMoveEvent(self, event):

@@ -1,7 +1,14 @@
-from PySide6.QtCore import Qt, QSize, QRect, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QPainter, QPixmap, QPen, QIcon
-from PySide6.QtWidgets import (
-    QApplication, QSlider, QInputDialog, QMessageBox, QDialog, QProgressDialog, QMainWindow, QPushButton, QLabel, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QScrollArea, QSpacerItem, QSizePolicy
+from PySide6.QtCore import (Qt, QSize, 
+                            QRect, QPointF)
+from PySide6.QtGui import (QColor, QPainter, QPixmap, QPen, 
+                           QPolygonF, QBrush, QFont)
+from PySide6.QtWidgets import (QSlider, QInputDialog,
+    QGraphicsLineItem, QMessageBox, QDialog, QProgressDialog,
+    QMainWindow, QPushButton, QLabel, QWidget, QVBoxLayout, 
+    QHBoxLayout, QFileDialog, QGraphicsView, QGraphicsScene, 
+    QGraphicsPixmapItem, QTableWidget, QTableWidgetItem, QHeaderView,
+    QCheckBox, QScrollArea, QSpacerItem, QSizePolicy, QGraphicsTextItem, 
+    QGraphicsPolygonItem
 )
 from PySide6.QtCore import QThread
 from PySide6.QtGui import QImage, QPixmap
@@ -159,44 +166,9 @@ class ToolBoxMainWindow(QMainWindow):
         self.right_layout.addWidget(circle_widget)
         self.main_layout.addLayout(self.right_layout)
         self.main_layout.addLayout(last_layout)
-    
-    def open_split_line_window(self):
-
-        if not self.image_viewer.pixmap:
-            QMessageBox.warning(self, "Warning", "Please load an image before splitting.")
-            return
-
-        gcp_points = self.get_gcp_points()
-        icp_points = self.get_icp_points()
-
-        # Create the line-split dialog
-        dialog = SplitLineWindow(
-            qpixmap=self.image_viewer.pixmap, 
-            gcp_points=gcp_points,
-            icp_points=icp_points,
-            scene=self.image_scene,
-            degree=self.degree_slider.value(),
-            parent=self
-        )
-        dialog.exec()
-
-
-    def enable_split_line_mode(self):
-        """
-        Enables a mode in which the user can click two points on the image
-        to define a line that splits the image into two parts.
-        """
-        if not self.image_scene.items():
-            QMessageBox.warning(self, "Warning", "Please load an image first.")
-            return
-
-        self.line_points.clear()
-        self.split_line_mode = True
-
-        QMessageBox.information(
-            self, "Split-Line Mode",
-            "Click two points on the image to define a line that will split the image. Press C to clean the lines"
-        )
+        
+        self.lines = []
+        self.waiting_for_point_pick = False
 
     def run_ga_workflow(self):
         """
@@ -345,11 +317,12 @@ class ToolBoxMainWindow(QMainWindow):
     def load_gcp_file(self):
         """
         Opens a file dialog to select a GCP file and loads its content into the table.
-        Draws the points from the GCP file onto the image using scaled icons.
+        Marks all points as ICP by default.
         """
         if not self.image_scene.items():  # No items in the scene, meaning no image loaded
             QMessageBox.warning(self, "Warning", "Please import a photo before loading GCP points.")
             return
+
         file_path, _ = QFileDialog.getOpenFileName(self, "Open GCP File", "", "Text Files (*.txt)")
         if file_path:
             with open(file_path, "r") as file:
@@ -360,8 +333,9 @@ class ToolBoxMainWindow(QMainWindow):
                     for col, value in enumerate(values):
                         self.table_widget.setItem(row, col, QTableWidgetItem(value))
                     
-                    # Add ICP checkbox in the last column
+                    # Add ICP checkbox in the last column (checked by default)
                     checkbox = QCheckBox()
+                    checkbox.setChecked(True)  # Mark as ICP by default
                     checkbox.setStyleSheet("margin-left: 50%; margin-right: 50%;")
                     checkbox.stateChanged.connect(lambda state, row=row: self.update_icon(row, state))
                     self.table_widget.setCellWidget(row, 6, checkbox)
@@ -386,15 +360,54 @@ class ToolBoxMainWindow(QMainWindow):
             self.table_scroll_area.setVisible(True)
             self.toggle_table_button.setVisible(True)
 
+
+    def convert_nearest_icp_to_gcp(self, scene_pos):
+        """
+        Finds the nearest ICP point to the clicked position and converts it to GCP.
+        """
+        icp_points = self.get_icp_points()
+        if not icp_points:
+            QMessageBox.warning(self, "Warning", "No ICP points available.")
+            return
+
+        nearest_point = None
+        min_distance = float('inf')
+        nearest_row = None
+
+        for row in range(self.table_widget.rowCount()):
+            checkbox = self.table_widget.cellWidget(row, 6)
+            if checkbox and checkbox.isChecked():   
+                x = float(self.table_widget.item(row, 1).text())
+                y = float(self.table_widget.item(row, 2).text())
+                distance = np.sqrt((x - scene_pos.x())**2 + (y - scene_pos.y())**2)
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_point = (x, y)
+                    nearest_row = row
+
+        if nearest_point is None:
+            QMessageBox.warning(self, "Warning", "No ICP points found near the clicked position.")
+            return
+
+        checkbox = self.table_widget.cellWidget(nearest_row, 6)
+        checkbox.setChecked(False) 
+
+        self.update_icon(nearest_row, Qt.Unchecked)
+
+        QMessageBox.information(
+            self, "Info",
+            f"Point ({nearest_point[0]:.2f}, {nearest_point[1]:.2f}) converted to GCP."
+        )
+
+
     def update_icon(self, row, state):
         """
         Updates the icon of the point based on the checkbox state.
         """
-        # Determine the new icon path based on the checkbox state
-        if state == Qt.Checked:
-            icon_path = "ui/icon/redpin.png"  # Replace with the path to your selected icon
-        else:
-            icon_path = "ui/icon/bluepin.png"  # Replace with the path to your unselected icon
+        if state == 2:
+            icon_path = "ui/icon/redpin.png"   
+        elif state == 0:
+            icon_path = "ui/icon/bluepin.png"   
 
         # Get the x, y coordinates from the table
         x = float(self.table_widget.item(row, 1).text())
@@ -633,12 +646,56 @@ class ToolBoxMainWindow(QMainWindow):
             self.draggable = False
             self.offset = None
             
-    def perform_split_line_regression(self, x1, y1, x2, y2):
+################################ Piecewise ####################################
+
+    def open_split_line_window(self):
+
+        if not self.image_viewer.pixmap:
+            QMessageBox.warning(self, "Warning", "Please load an image before splitting.")
+            return
+
+        gcp_points = self.get_gcp_points()
+        icp_points = self.get_icp_points()
+
+        # Create the line-split dialog
+        dialog = SplitLineWindow(
+            qpixmap=self.image_viewer.pixmap, 
+            gcp_points=gcp_points,
+            icp_points=icp_points,
+            scene=self.image_scene,
+            degree=self.degree_slider.value(),
+            parent=self
+        )
+        dialog.exec()
+
+
+    def enable_split_line_mode(self):
         """
-        Splits GCP/ICP points based on which side of the line (x1,y1)->(x2,y2) they fall on.
-        Performs polynomial regression separately for each side, and displays RMSE results.
+        Enables a mode in which the user can click two points on the image
+        to define lines that split the image into multiple parts.
         """
-        # 1) Grab GCP/ICP from the table
+        if not self.image_scene.items():
+            QMessageBox.warning(self, "Warning", "Please load an image first.")
+            return
+
+        self.line_points.clear()
+        self.split_line_mode = True
+
+        QMessageBox.information(
+            self,
+            "Split-Line Mode",
+            "Click two points on the image to define lines for splitting. Press 'X' to finalize and 'C' to clear lines."
+            )
+            
+    def perform_split_line_regression(self):
+        """
+        Splits GCP/ICP points based on multiple lines drawn by the user.
+        Performs polynomial regression separately for each region.
+        """
+        if not self.lines:
+            QMessageBox.warning(self, "Warning", "No lines defined for splitting.")
+            return
+
         gcp_points = self.get_gcp_points()
         icp_points = self.get_icp_points()
         degree = self.degree_slider.value()
@@ -646,62 +703,76 @@ class ToolBoxMainWindow(QMainWindow):
         if not gcp_points:
             QMessageBox.warning(self, "Warning", "No GCP points available.")
             return
-        
+
         if not icp_points:
             QMessageBox.warning(self, "Warning", "No ICP points available.")
             return
 
-        # 2) Separate GCPs into two sides
-        gcp_side_a = []
-        gcp_side_b = []
+        def get_region(px, py):
+            region = 0
+            for line in self.lines:
+                x1, y1, x2, y2 = line
+                sign = self._side_of_line(px, py, x1, y1, x2, y2)
+                if sign < 0:
+                    region += 1
+            return region
+
+        gcp_regions = {}
+        icp_regions = {}
+
         for gcp in gcp_points:
-            sign = self._side_of_line(gcp["x"], gcp["y"], x1, y1, x2, y2)
-            if sign >= 0:
-                gcp_side_a.append(gcp)
-            else:
-                gcp_side_b.append(gcp)
+            region = get_region(gcp["x"], gcp["y"])
+            if region not in gcp_regions:
+                gcp_regions[region] = []
+            gcp_regions[region].append(gcp)
 
-        # 3) Separate ICPs into two sides
-        icp_side_a = []
-        icp_side_b = []
         for icp in icp_points:
-            sign = self._side_of_line(icp["x"], icp["y"], x1, y1, x2, y2)
-            if sign >= 0:
-                icp_side_a.append(icp)
-            else:
-                icp_side_b.append(icp)
+            region = get_region(icp["x"], icp["y"])
+            if region not in icp_regions:
+                icp_regions[region] = []
+            icp_regions[region].append(icp)
 
-        # 4) Regress & compute RMSE
-        rmseA_forward, rmseA_backward = self._regress_and_rmse(gcp_side_a, icp_side_a, degree)
-        rmseB_forward, rmseB_backward = self._regress_and_rmse(gcp_side_b, icp_side_b, degree)
+        text_lines = ["<b>Split Line Regression Results</b><br>"]
+        for region in sorted(gcp_regions.keys()):
+            gcp_list = gcp_regions[region]
+            icp_list = icp_regions.get(region, [])
+            if len(gcp_list) < 2 or len(icp_list) < 1:
+                text_lines.append(
+                    f"<b>Region {region}</b>: Not enough GCP/ICP points for regression.<br><br>"
+                )
+                continue
 
-        # 5) Show results
-        text_lines = []
-        text_lines.append("<b>Split Line Regression Results</b><br>")
+            rmse_forward, rmse_backward = self._regress_and_rmse(gcp_list, icp_list, degree)
+            fx, fy = rmse_forward
+            bx, by = rmse_backward
 
-        if rmseA_forward is None:
-            text_lines.append("<b>Side A</b>: Not enough GCP/ICP for regression.<br><br>")
-        else:
-            fx, fy = rmseA_forward
-            bx, by = rmseA_backward
             text_lines.append(
-                f"<b>Side A</b> (GCPs={len(gcp_side_a)}, ICPs={len(icp_side_a)})<br>"
-                f"Forward RMSE: X={fx:.4f}, Y={fy:.4f}<br>"
-                f"Backward RMSE: X={bx:.4f}, Y={by:.4f}<br><br>"
-            )
-
-        if rmseB_forward is None:
-            text_lines.append("<b>Side B</b>: Not enough GCP/ICP for regression.<br><br>")
-        else:
-            fx, fy = rmseB_forward
-            bx, by = rmseB_backward
-            text_lines.append(
-                f"<b>Side B</b> (GCPs={len(gcp_side_b)}, ICPs={len(icp_side_b)})<br>"
+                f"<b>Region {region}</b> (GCPs={len(gcp_list)}, ICPs={len(icp_list)})<br>"
                 f"Forward RMSE: X={fx:.4f}, Y={fy:.4f}<br>"
                 f"Backward RMSE: X={bx:.4f}, Y={by:.4f}<br><br>"
             )
 
         QMessageBox.information(self, "Split Regression RMSE", "".join(text_lines))
+
+    def clear_lines(self):
+        """Clear all lines from the scene and reset the line list."""
+        self.lines.clear()
+        for item in self.image_scene.items():
+            if isinstance(item, QGraphicsLineItem):
+                self.image_scene.removeItem(item)
+        self.image_scene.update()
+
+    def finalize_lines(self):
+        """Finalize the line-picking process."""
+        if not self.lines:
+            QMessageBox.information(self, "Info", "No lines drawn to finalize.")
+            return
+
+        self.split_line_mode = False
+        self.perform_split_line_regression()
+
+        QMessageBox.information(self, "Info", "Line-picking process finalized.")
+
 
     def _regress_and_rmse(self, gcp_list, icp_list, degree):
         """
@@ -726,7 +797,7 @@ class ToolBoxMainWindow(QMainWindow):
         rmseX_bwd, rmseY_bwd = poly.rmse(px_bwd, py_bwd, actual_X, actual_Y)
 
         return (rmseX_fwd, rmseY_fwd), (rmseX_bwd, rmseY_bwd)
-    
+
     def _side_of_line(self, px, py, x1, y1, x2, y2):
         """
         Returns the signed cross product to indicate which side
