@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QGraphicsView, QWidget
+from PySide6.QtWidgets import QGraphicsView, QWidget, QGraphicsLineItem
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QPointF
-from PySide6.QtGui import QPainter, QPixmap, QBrush, QColor, QPainterPath
+from PySide6.QtGui import QPainter, QPixmap, QBrush, QColor, QPainterPath, QPen
 
 class CircularMagnifier(QWidget):
     def __init__(self, parent=None):
@@ -65,6 +65,7 @@ class MagnifierGraphicsView(QGraphicsView):
         self.pixmap = None
         self.magnifier = CircularMagnifier(self)
         self.magnifier.hide()
+        self.parent = parent
         self.is_magnifier_active = False
 
     def resizeEvent(self, event):
@@ -76,13 +77,48 @@ class MagnifierGraphicsView(QGraphicsView):
         Set the pixmap for the view, typically an image displayed in the scene.
         """
         self.pixmap = pixmap
-
+            
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
 
         if event.button() == Qt.RightButton and self.pixmap:
             self.is_magnifier_active = True
             self.update_magnifier(event.pos())
+                            
+        if self.parent.split_line_mode and event.button() == Qt.LeftButton:
+            scene_pos = self.parent.image_viewer.mapToScene(event.pos())
+            self.parent.line_points.append((scene_pos.x(), scene_pos.y()))
+
+            if len(self.parent.line_points) == 1:
+                self.parent.image_scene.addEllipse(scene_pos.x() - 3, scene_pos.y() - 3, 6, 6, QPen(Qt.red), Qt.red)
+            elif len(self.parent.line_points) == 2:
+                x1, y1 = map(int, self.parent.line_points[0])
+                x2, y2 = map(int, self.parent.line_points[1])
+                pen = QPen(Qt.blue)
+                pen.setWidth(100)
+                self.parent.image_scene.addLine(x1, y1, x2, y2, pen)
+                self.parent.image_scene.update()  
+
+                self.parent.perform_split_line_regression(x1, y1, x2, y2)
+                self.parent.split_line_mode = False
+                self.parent.line_points.clear()
+        else:
+            super().mousePressEvent(event)
+    
+    def keyPressEvent(self, event):
+        """
+        Handles key press events to remove lines when 'C' is pressed.
+        """
+        if event.key() == Qt.Key_C:
+            # Clear all line items from the scene
+            for item in self.parent.image_scene.items():
+                if isinstance(item, QGraphicsLineItem):  # Check if the item is a line
+                    self.parent.image_scene.removeItem(item)
+            self.parent.image_scene.update()  # Refresh the scene
+        else:
+            super().keyPressEvent(event)
+
+
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)

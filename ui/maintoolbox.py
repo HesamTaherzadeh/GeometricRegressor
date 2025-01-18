@@ -195,7 +195,7 @@ class ToolBoxMainWindow(QMainWindow):
 
         QMessageBox.information(
             self, "Split-Line Mode",
-            "Click two points on the image to define a line that will split the image."
+            "Click two points on the image to define a line that will split the image. Press C to clean the lines"
         )
 
     def run_ga_workflow(self):
@@ -371,14 +371,12 @@ class ToolBoxMainWindow(QMainWindow):
                         x, y = int(float(values[1])), int(float(values[2]))
                         idx = values[0]
 
-                        # Load, scale, and place the icon
                         icon_path = "ui/icon/redpin.png"  # Replace with the path to your icon
                         icon_pixmap = QPixmap(icon_path)
                         scaled_pixmap = icon_pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)  # Resize to 20x20
                         icon_item = self.image_scene.addPixmap(scaled_pixmap)
                         icon_item.setOffset(x - scaled_pixmap.width() // 2, y - scaled_pixmap.height() // 2)
 
-                        # Add a label near the icon
                         label = QLabel(idx)
                         label.setStyleSheet("color: red; font-size: 10px;")
                         label.setAttribute(Qt.WA_TranslucentBackground)
@@ -711,7 +709,7 @@ class ToolBoxMainWindow(QMainWindow):
         Returns: ( (rmseX_fwd, rmseY_fwd), (rmseX_bwd, rmseY_bwd) ) or (None, None) if not enough points.
         """
         if len(gcp_list) < 2 or len(icp_list) < 1:
-            return None, None  # Not enough data
+            return None, None  
 
         poly = Polynomial(gcp_list, degree)
         fx, fy, bx, by = poly.regress_polynomial()
