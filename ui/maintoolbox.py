@@ -96,7 +96,7 @@ class ToolBoxMainWindow(QMainWindow):
         self.right_layout.addWidget(self.toggle_table_button)
         last_layout = QVBoxLayout()
 
-        self.forward_button = HoverButton("ui/icon/regress.png")  # "Forward" button
+        self.forward_button = HoverButton("ui/icon/regress.png")  
         self.forward_button.clicked.connect(self.perform_regression)
         self.right_layout.addWidget(self.forward_button)
         
@@ -109,10 +109,13 @@ class ToolBoxMainWindow(QMainWindow):
         self.split_line_button.clicked.connect(self.enable_split_line_mode)
         self.right_layout.addWidget(self.split_line_button)
         
+        self.pointwise_button = HoverButton("ui/icon/pointwise.png") 
+        self.right_layout.addWidget(self.pointwise_button)
+        
         self.resampling_button = HoverButton("ui/icon/resample.png", self) 
         self.resampling_button.clicked.connect(self.perform_resampling)
         self.right_layout.addWidget(self.resampling_button)
-
+        
         self.degree_slider = QSlider(Qt.Vertical, self) 
         self.degree_slider.setMinimum(1)
         self.degree_slider.setMaximum(35)
@@ -404,10 +407,10 @@ class ToolBoxMainWindow(QMainWindow):
         """
         Updates the icon of the point based on the checkbox state.
         """
-        if state == 2:
-            icon_path = "ui/icon/redpin.png"   
-        elif state == 0:
+        if (state == Qt.Unchecked or state == 0):
             icon_path = "ui/icon/bluepin.png"   
+        else:
+            icon_path = "ui/icon/redpin.png"   
 
         # Get the x, y coordinates from the table
         x = float(self.table_widget.item(row, 1).text())
@@ -685,6 +688,7 @@ class ToolBoxMainWindow(QMainWindow):
             self,
             "Split-Line Mode",
             "Click two points on the image to define lines for splitting. Press 'X' to finalize and 'C' to clear lines."
+            "Lines should stretch from any side of image to another side, they will be extended, lines should not collide"
             )
             
     def perform_split_line_regression(self):
