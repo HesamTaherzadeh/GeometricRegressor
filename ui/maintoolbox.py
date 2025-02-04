@@ -523,6 +523,8 @@ class ToolBoxMainWindow(QMainWindow):
         actual_y = np.array([point['Y'] for point in icp_points])
         rmse_X_backward, rmse_Y_backward = polynomial.rmse(predicted_x_backward, predicted_y_backward, actual_x, actual_y)
 
+        self.show_quiver_plots(icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward)
+
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Evaluation Results")
         msg_box.setText(
@@ -533,9 +535,38 @@ class ToolBoxMainWindow(QMainWindow):
             f"RMSE (X): {rmse_X_backward:.4f}, RMSE (Y): {rmse_Y_backward:.4f}"
         )
         msg_box.exec()
+        
+        ##### Recomputing on GCPS for pointwise operations
+        actual_x_gcp = np.array([point['x'] for point in gcp_points])
+        actual_y_gcp = np.array([point['y'] for point in gcp_points])
+        actual_X_gcp = np.array([point['X'] for point in gcp_points])
+        actual_Y_gcp = np.array([point['Y'] for point in gcp_points])
+        
+        predicted_x_forward, predicted_y_forward = polynomial.evaluate(
+            (coeffs_x_forward, coeffs_y_forward), gcp_points, forward=False
+        )
 
-        self.show_quiver_plots(icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward)
+        predicted_x_backward, predicted_y_backward = polynomial.evaluate(
+            (coeffs_x_backward, coeffs_y_backward), gcp_points, forward=True
+        )
+        
+        self.update_displacement_values(predicted_x_backward, actual_x_gcp, predicted_y_backward, actual_y_gcp, 
+                                        predicted_x_forward, actual_X_gcp, predicted_y_forward, actual_Y_gcp)
 
+
+    def update_displacement_values(self, predicted_x, actual_x, predicted_y, actual_y,
+                                         predicted_X, actual_X, predicted_Y, actual_Y):
+        """
+        Update displacement values in the singleton project instance.
+        """
+        project = Project.get_instance()
+        project.dx = predicted_x - actual_x
+        project.dy = predicted_y - actual_y
+        project.dX = predicted_X - actual_X
+        project.dY = predicted_Y - actual_Y
+        
+        print(np.mean(project.dx), np.mean(project.dy), np.mean(project.dX), np.mean(project.dY))
+        
     def show_quiver_plots(self, icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward):
         """
         Show two quiver plots side-by-side in a PyQt canvas.
