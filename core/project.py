@@ -1,5 +1,5 @@
 import pickle
-import numpy 
+import numpy as np
 class Project:
     _instance = None
 

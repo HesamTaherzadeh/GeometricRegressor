@@ -1,22 +1,20 @@
 from PySide6.QtCore import (Qt, QSize, 
-                            QRect, QPointF)
-from PySide6.QtGui import (QColor, QPainter, QPixmap, QPen, 
-                           QPolygonF, QBrush, QFont)
+                            QRect)
+from PySide6.QtGui import (QColor, QPainter, QPixmap)
 from PySide6.QtWidgets import (QSlider, QInputDialog,
     QGraphicsLineItem, QMessageBox, QDialog, QProgressDialog,
     QMainWindow, QPushButton, QLabel, QWidget, QVBoxLayout, 
-    QHBoxLayout, QFileDialog, QGraphicsView, QGraphicsScene, 
+    QHBoxLayout, QFileDialog, QGraphicsScene, 
     QGraphicsPixmapItem, QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QScrollArea, QSpacerItem, QSizePolicy, QGraphicsTextItem, 
-    QGraphicsPolygonItem
+    QCheckBox, QScrollArea, QSpacerItem, QSizePolicy, QRadioButton
 )
 from PySide6.QtCore import QThread
 from PySide6.QtGui import QImage, QPixmap
-from matplotlib.figure import Figure
 from ui.widgets.circular import CircleNumberWidget
 from ui.magnifier import MagnifierGraphicsView
 from core.polynomial import Polynomial
 from core.resampling import ResamplingWorker
+from core.pointwise import Pointwise
 import numpy as np 
 import matplotlib.pyplot as plt
 from core.project import Project
@@ -110,6 +108,7 @@ class ToolBoxMainWindow(QMainWindow):
         self.right_layout.addWidget(self.split_line_button)
         
         self.pointwise_button = HoverButton("ui/icon/pointwise.png") 
+        self.pointwise_button.clicked.connect(self.perform_pointwise)
         self.right_layout.addWidget(self.pointwise_button)
         
         self.resampling_button = HoverButton("ui/icon/resample.png", self) 
@@ -679,7 +678,90 @@ class ToolBoxMainWindow(QMainWindow):
         if event.button() == Qt.LeftButton:
             self.draggable = False
             self.offset = None
-            
+    
+
+    def perform_pointwise(self):
+        """
+        Handles the pointwise displacement calculation by selecting an interpolation method.
+        """
+        project = Project.get_instance()
+
+        # Check for missing data
+        missing_data = []
+        if project.dx is None:
+            missing_data.append("dx values")
+        if project.dy is None:
+            missing_data.append("dy values")
+
+        if missing_data:
+            QMessageBox.warning(self, "Error", f"Missing Residuals, "
+                                            "Perform a regression to compute pointwise corrections")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Interpolation Method")
+        layout = QVBoxLayout(dialog)
+
+        # Radio buttons for method selection
+        radio_ldw = QRadioButton("LDW (Local Distance Weighted)")
+        radio_mq = QRadioButton("MQ (Multiquadratic)")
+        radio_mq.setChecked(True)  # Default selection
+
+        layout.addWidget(radio_ldw)
+        layout.addWidget(radio_mq)
+
+        # Label and slider for selecting R value
+        r_label = QLabel("Select R value: 1")
+        slider = QSlider(Qt.Horizontal)
+        slider.setMinimum(0)
+        slider.setMaximum(2)
+        slider.setTickInterval(1)
+        slider.setTickPosition(QSlider.TicksBelow)
+        slider.setValue(0)  # Default to r = 1
+        layout.addWidget(r_label)
+        layout.addWidget(slider)
+
+        r_values = {0: 1, 1: 2, 2: np.inf}
+
+        def update_label():
+            """ Update the label when the slider moves. """
+            selected_r = r_values[slider.value()]
+            r_label.setText(f"Select R value: {selected_r}")
+
+        slider.valueChanged.connect(update_label)
+
+        # OK Button
+        ok_button = QPushButton("OK")
+        layout.addWidget(ok_button)
+
+        def on_ok():
+            """ Handle OK button press. """
+            dialog.accept()
+
+        ok_button.clicked.connect(on_ok)
+
+        # Show dialog and get the result
+        if not dialog.exec_():
+            return  # User canceled
+
+        # Determine selected method
+        method = "LDW" if radio_ldw.isChecked() else "MQ"
+        r = r_values[slider.value()] if method == "LDW" else None
+
+        # Initialize the Pointwise computation
+        pointwise = Pointwise(self.get_gcp_points(), self.get_icp_points(),
+                            project.dx, project.dy, project.dX, project.dY)
+
+        if method == "MQ":
+            icp_dx, icp_dy = pointwise.multiquadratic()
+        elif method == "LDW":
+            icp_dx, icp_dy = pointwise.LDW(n=4, r=r)
+
+        # Store computed values
+        project.set_displacement_values(icp_dx, icp_dy, project.dX, project.dY)
+
+        QMessageBox.information(self, "Success", f"Pointwise computation completed using {method}.")
+
 ################################ Piecewise ####################################
 
     def open_split_line_window(self):
