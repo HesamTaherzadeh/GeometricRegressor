@@ -36,19 +36,22 @@ class Pointwise:
         """
         Perform the multiquadratic interpolation to estimate dx, dy, dX, dY for ICPs.
         """
-        dist_matrix = self.compute_distance_matrix(self.gcp_coords_xy, self.gcp_coords_xy)
+        dist_matrix_xy = self.compute_distance_matrix(self.gcp_coords_xy, self.gcp_coords_xy)
+        dist_matrix_XY = self.compute_distance_matrix(self.gcp_coords_XY, self.gcp_coords_XY)
+
+        coeffs_dx = np.linalg.solve(dist_matrix_xy, self.dx)
+        coeffs_dy = np.linalg.solve(dist_matrix_xy, self.dy)
+        coeffs_dX = np.linalg.solve(dist_matrix_XY, self.dX)
+        coeffs_dY = np.linalg.solve(dist_matrix_XY, self.dY)
         
-        coeffs_dx = np.linalg.solve(dist_matrix, self.dx)
-        coeffs_dy = np.linalg.solve(dist_matrix, self.dy)
-        coeffs_dX = np.linalg.solve(dist_matrix, self.dX)
-        coeffs_dY = np.linalg.solve(dist_matrix, self.dY)
-        
-        icp_dist_matrix = self.compute_distance_matrix(self.icp_coords_xy, self.gcp_coords_xy)
-        
-        icp_dx = icp_dist_matrix @ coeffs_dx
-        icp_dy = icp_dist_matrix @ coeffs_dy
-        icp_dX = icp_dist_matrix @ coeffs_dX
-        icp_dY = icp_dist_matrix @ coeffs_dY
+        icp_dist_matrix_xy = self.compute_distance_matrix(self.icp_coords_xy, self.gcp_coords_xy)
+        icp_dist_matrix_XY = self.compute_distance_matrix(self.icp_coords_XY, self.gcp_coords_XY)
+        print(self.icp_coords_xy.shape, icp_dist_matrix_xy.shape, icp_dist_matrix_xy.shape)
+
+        icp_dx = icp_dist_matrix_xy @ coeffs_dx
+        icp_dy = icp_dist_matrix_xy @ coeffs_dy
+        icp_dX = icp_dist_matrix_XY @ coeffs_dX
+        icp_dY = icp_dist_matrix_XY @ coeffs_dY
         
         return icp_dx, icp_dy, icp_dX, icp_dY
 

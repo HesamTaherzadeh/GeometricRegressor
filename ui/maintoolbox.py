@@ -511,15 +511,15 @@ class ToolBoxMainWindow(QMainWindow):
         self.project.backward_coeffs = (coeffs_x_backward, coeffs_y_backward)
         self.project.normalization_factor = polynomial.normalization_factors
         self.project.degree = degree
-        self.project.set_predicted(predicted_x_forward, predicted_x_backward, predicted_y_forward, predicted_y_backward)
+        self.project.set_predicted(predicted_x_backward, predicted_x_forward, predicted_y_backward, predicted_y_forward)
 
-        actual_X = np.array([point['x'] for point in icp_points])
-        actual_Y = np.array([point['y'] for point in icp_points])
-        rmse_X_forward, rmse_Y_forward = polynomial.rmse(predicted_x_forward, predicted_y_forward, actual_X, actual_Y)
+        actual_x = np.array([point['x'] for point in icp_points])
+        actual_y = np.array([point['y'] for point in icp_points])
+        rmse_X_forward, rmse_Y_forward = polynomial.rmse(predicted_x_forward, predicted_y_forward, actual_x, actual_y)
 
-        actual_x = np.array([point['X'] for point in icp_points])
-        actual_y = np.array([point['Y'] for point in icp_points])
-        rmse_X_backward, rmse_Y_backward = polynomial.rmse(predicted_x_backward, predicted_y_backward, actual_x, actual_y)
+        actual_X = np.array([point['X'] for point in icp_points])
+        actual_Y = np.array([point['Y'] for point in icp_points])
+        rmse_X_backward, rmse_Y_backward = polynomial.rmse(predicted_x_backward, predicted_y_backward, actual_X, actual_Y)
 
         self.show_quiver_plots(icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward)
         self.project.set_gt_icp(actual_X, actual_Y, actual_x, actual_y)
@@ -546,19 +546,19 @@ class ToolBoxMainWindow(QMainWindow):
         actual_Y_gcp = np.array([point['Y'] for point in gcp_points])
         
         predicted_x_forward, predicted_y_forward = polynomial.evaluate(
-            (coeffs_x_forward, coeffs_y_forward), gcp_points, forward=False
+            (coeffs_x_forward, coeffs_y_forward), gcp_points, forward=True
         )
 
         predicted_x_backward, predicted_y_backward = polynomial.evaluate(
-            (coeffs_x_backward, coeffs_y_backward), gcp_points, forward=True
+            (coeffs_x_backward, coeffs_y_backward), gcp_points, forward=False
         )
         
-        self.update_displacement_values(predicted_x_backward, actual_x_gcp, predicted_y_backward, actual_y_gcp, 
-                                        predicted_x_forward, actual_X_gcp, predicted_y_forward, actual_Y_gcp)
+        self.update_displacement_values(predicted_x_backward, actual_X_gcp, predicted_y_backward, actual_Y_gcp, 
+                                        predicted_x_forward, actual_x_gcp, predicted_y_forward, actual_y_gcp)
 
 
-    def update_displacement_values(self, predicted_x, actual_x, predicted_y, actual_y,
-                                         predicted_X, actual_X, predicted_Y, actual_Y):
+    def update_displacement_values(self, predicted_X, actual_X, predicted_Y, actual_Y,
+                                         predicted_x, actual_x, predicted_y, actual_y):
         """
         Update displacement values in the singleton project instance.
         """
@@ -819,7 +819,7 @@ class ToolBoxMainWindow(QMainWindow):
             
         (p_x, p_y),( p_X, p_Y) = project.get_predicted()
         
-        self.show_quiver_plots(self.get_icp_points(), p_X + icp_dx , p_Y + icp_dy, p_x + icp_dX, p_y + icp_dY, show_rmse=True)
+        self.show_quiver_plots(self.get_icp_points(), p_x + icp_dY , p_y + icp_dy, p_X + icp_dX, p_Y + icp_dY, show_rmse=True)
 
         QMessageBox.information(self, "Success", f"Pointwise computation completed using {method}.")
 
