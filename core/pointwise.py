@@ -17,8 +17,10 @@ class Pointwise:
         self.dy = np.array(dy)
         self.dX = np.array(dX)
         self.dY = np.array(dY)
-        self.gcp_coords = np.array([[p['x'], p['y']] for p in gcps])
-        self.icp_coords = np.array([[p['x'], p['y']] for p in icps])
+        self.gcp_coords_xy = np.array([[p['x'], p['y']] for p in gcps])
+        self.gcp_coords_XY = np.array([[p['X'], p['Y']] for p in gcps])
+        self.icp_coords_xy = np.array([[p['x'], p['y']] for p in icps])
+        self.icp_coords_XY = np.array([[p['X'], p['Y']] for p in icps])
     
     def compute_distance_matrix(self, src, dest):
         """
@@ -32,39 +34,43 @@ class Pointwise:
 
     def multiquadratic(self):
         """
-        Perform the multiquadratic interpolation to estimate dx, dy for ICPs.
+        Perform the multiquadratic interpolation to estimate dx, dy, dX, dY for ICPs.
         """
-        dist_matrix = self.compute_distance_matrix(self.gcp_coords, self.gcp_coords)
+        dist_matrix = self.compute_distance_matrix(self.gcp_coords_xy, self.gcp_coords_xy)
         
-        coeffs_x = np.linalg.solve(dist_matrix, self.dx)
-        coeffs_y = np.linalg.solve(dist_matrix, self.dy)
+        coeffs_dx = np.linalg.solve(dist_matrix, self.dx)
+        coeffs_dy = np.linalg.solve(dist_matrix, self.dy)
+        coeffs_dX = np.linalg.solve(dist_matrix, self.dX)
+        coeffs_dY = np.linalg.solve(dist_matrix, self.dY)
         
-        icp_dist_matrix = self.compute_distance_matrix(self.icp_coords, self.gcp_coords)
+        icp_dist_matrix = self.compute_distance_matrix(self.icp_coords_xy, self.gcp_coords_xy)
         
-        icp_dx = icp_dist_matrix @ coeffs_x
-        icp_dy = icp_dist_matrix @ coeffs_y
+        icp_dx = icp_dist_matrix @ coeffs_dx
+        icp_dy = icp_dist_matrix @ coeffs_dy
+        icp_dX = icp_dist_matrix @ coeffs_dX
+        icp_dY = icp_dist_matrix @ coeffs_dY
         
-        return icp_dx, icp_dy
+        return icp_dx, icp_dy, icp_dX, icp_dY
 
     def find_four_closest(self, icp, r):
         """
         Find the 4 closest GCPs that are in different quadrants around an ICP.
         :param icp: A single ICP point (x, y)
         :param r: Norm order for distance calculation
-        :return: 4 selected GCPs and their dx, dy values
+        :return: 4 selected GCPs and their dx, dy, dX, dY values
         """
-        distances = np.linalg.norm(self.gcp_coords - icp, axis=1, ord=r)
+        distances = np.linalg.norm(self.gcp_coords_xy - icp, axis=1, ord=r)
         quadrants = [[], [], [], []]
         
-        for i, (gcp, dist) in enumerate(zip(self.gcp_coords, distances)):
+        for i, (gcp, dist) in enumerate(zip(self.gcp_coords_xy, distances)):
             if gcp[0] >= icp[0] and gcp[1] >= icp[1]:
-                quadrants[0].append((i, dist))  # Top right
+                quadrants[0].append((i, dist)) 
             elif gcp[0] < icp[0] and gcp[1] >= icp[1]:
-                quadrants[1].append((i, dist))  # Top left
+                quadrants[1].append((i, dist)) 
             elif gcp[0] < icp[0] and gcp[1] < icp[1]:
-                quadrants[2].append((i, dist))  # Bottom left
+                quadrants[2].append((i, dist))  
             elif gcp[0] >= icp[0] and gcp[1] < icp[1]:
-                quadrants[3].append((i, dist))  # Bottom right
+                quadrants[3].append((i, dist))  
         
         selected = []
         for quad in quadrants:
@@ -82,24 +88,32 @@ class Pointwise:
         Perform Local Distance Weighted interpolation.
         :param n: Number of closest points to use
         :param r: Norm order for distance calculation
-        :return: Interpolated dx, dy for each ICP
+        :return: Interpolated dx, dy, dX, dY for each ICP
         """
         icp_dx = []
         icp_dy = []
+        icp_dX = []
+        icp_dY = []
         
-        for icp in self.icp_coords:
+        for icp in self.icp_coords_xy:
             indices = self.find_four_closest(icp, r)
-            selected_gcps = self.gcp_coords[indices]
+            selected_gcps = self.gcp_coords_xy[indices]
             selected_dx = self.dx[indices]
             selected_dy = self.dy[indices]
+            selected_dX = self.dX[indices]
+            selected_dY = self.dY[indices]
             
             distances = np.linalg.norm(selected_gcps - icp, axis=1, ord=r)
             weights = 1 / (distances + 1e-10)  # Avoid division by zero
             
             weighted_dx = np.sum(weights * selected_dx) / np.sum(weights)
             weighted_dy = np.sum(weights * selected_dy) / np.sum(weights)
+            weighted_dX = np.sum(weights * selected_dX) / np.sum(weights)
+            weighted_dY = np.sum(weights * selected_dY) / np.sum(weights)
             
             icp_dx.append(weighted_dx)
             icp_dy.append(weighted_dy)
+            icp_dX.append(weighted_dX)
+            icp_dY.append(weighted_dY)
         
-        return np.array(icp_dx), np.array(icp_dy)
+        return np.array(icp_dx), np.array(icp_dy), np.array(icp_dX), np.array(icp_dY)

@@ -813,14 +813,13 @@ class ToolBoxMainWindow(QMainWindow):
                             project.dx, project.dy, project.dX, project.dY)
 
         if method == "MQ":
-            icp_dx, icp_dy = pointwise.multiquadratic()
+            icp_dx, icp_dy, icp_dX, icp_dY = pointwise.multiquadratic()
         elif method == "LDW":
-            icp_dx, icp_dy = pointwise.LDW(n=4, r=r)
+            icp_dx, icp_dy, icp_dX, icp_dY= pointwise.LDW(n=4, r=r)
             
-        # project.set_displacement_values(icp_dx, icp_dy, project.dX, project.dY)
         (p_x, p_y),( p_X, p_Y) = project.get_predicted()
         
-        self.show_quiver_plots(self.get_icp_points(), p_X , p_Y, p_x + icp_dx, p_y + icp_dy, show_rmse=True)
+        self.show_quiver_plots(self.get_icp_points(), p_X + icp_dx , p_Y + icp_dy, p_x + icp_dX, p_y + icp_dY, show_rmse=True)
 
         QMessageBox.information(self, "Success", f"Pointwise computation completed using {method}.")
 
