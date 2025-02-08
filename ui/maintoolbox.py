@@ -499,12 +499,10 @@ class ToolBoxMainWindow(QMainWindow):
         
         coeffs_x_forward, coeffs_y_forward, coeffs_x_backward, coeffs_y_backward = polynomial.regress_polynomial()
 
-        # Evaluate forward polynomial on ICP points
         predicted_x_forward, predicted_y_forward = polynomial.evaluate(
             (coeffs_x_forward, coeffs_y_forward), icp_points, forward=True
         )
 
-        # Evaluate backward polynomial on GCP points
         predicted_x_backward, predicted_y_backward = polynomial.evaluate(
             (coeffs_x_backward, coeffs_y_backward), icp_points, forward=False
         )
@@ -513,6 +511,7 @@ class ToolBoxMainWindow(QMainWindow):
         self.project.backward_coeffs = (coeffs_x_backward, coeffs_y_backward)
         self.project.normalization_factor = polynomial.normalization_factors
         self.project.degree = degree
+        self.project.set_predicted(predicted_x_forward, predicted_x_backward, predicted_y_forward, predicted_y_backward)
 
         actual_X = np.array([point['x'] for point in icp_points])
         actual_Y = np.array([point['y'] for point in icp_points])
@@ -523,7 +522,7 @@ class ToolBoxMainWindow(QMainWindow):
         rmse_X_backward, rmse_Y_backward = polynomial.rmse(predicted_x_backward, predicted_y_backward, actual_x, actual_y)
 
         self.show_quiver_plots(icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward)
-
+        self.project.set_gt_icp(actual_X, actual_Y, actual_x, actual_y)
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Evaluation Results")
         msg_box.setText(
@@ -534,6 +533,11 @@ class ToolBoxMainWindow(QMainWindow):
             f"RMSE (X): {rmse_X_backward:.4f}, RMSE (Y): {rmse_Y_backward:.4f}"
         )
         msg_box.exec()
+        
+        self.project.rmse_Y_backward = rmse_Y_backward
+        self.project.rmse_X_backward = rmse_X_backward
+        self.project.rmse_X_forward = rmse_X_forward
+        self.project.rmse_Y_forward = rmse_Y_forward
         
         ##### Recomputing on GCPS for pointwise operations
         actual_x_gcp = np.array([point['x'] for point in gcp_points])
@@ -565,13 +569,68 @@ class ToolBoxMainWindow(QMainWindow):
         project.dY = predicted_Y - actual_Y
         
         print(np.mean(project.dx), np.mean(project.dy), np.mean(project.dX), np.mean(project.dY))
-        
-    def show_quiver_plots(self, icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward):
+
+
+    def show_quiver_plots(self, icp_points, predicted_x_forward, predicted_y_forward, predicted_x_backward, predicted_y_backward, show_rmse=False):
         """
         Show two quiver plots side-by-side in a PyQt canvas.
-        One for the forward transformation and one for the backward transformation.
+        Optionally computes RMSE before plotting.
         """
 
+        if show_rmse:
+            # Compute RMSE for forward transformation
+            true_x_forward = np.array([point['x'] for point in icp_points])
+            true_y_forward = np.array([point['y'] for point in icp_points])
+            rmse_X_forward = np.sqrt(np.mean((predicted_x_forward - true_x_forward) ** 2))
+            rmse_Y_forward = np.sqrt(np.mean((predicted_y_forward - true_y_forward) ** 2))
+
+            # Compute RMSE for backward transformation
+            true_x_backward = np.array([point['X'] for point in icp_points])
+            true_y_backward = np.array([point['Y'] for point in icp_points])
+            rmse_X_backward = np.sqrt(np.mean((predicted_x_backward - true_x_backward) ** 2))
+            rmse_Y_backward = np.sqrt(np.mean((predicted_y_backward - true_y_backward) ** 2))
+
+            # Get previous RMSE values (if available)
+            prev_rmse_X_forward = getattr(self.project, "rmse_X_forward", None)
+            prev_rmse_Y_forward = getattr(self.project, "rmse_Y_forward", None)
+            prev_rmse_X_backward = getattr(self.project, "rmse_X_backward", None)
+            prev_rmse_Y_backward = getattr(self.project, "rmse_Y_backward", None)
+
+            # Compute improvements (difference: new - previous)
+            improvement_X_forward = None if prev_rmse_X_forward is None else prev_rmse_X_forward - rmse_X_forward
+            improvement_Y_forward = None if prev_rmse_Y_forward is None else prev_rmse_Y_forward - rmse_Y_forward
+            improvement_X_backward = None if prev_rmse_X_backward is None else prev_rmse_X_backward - rmse_X_backward
+            improvement_Y_backward = None if prev_rmse_Y_backward is None else prev_rmse_Y_backward - rmse_Y_backward
+
+            # Update RMSE values in self.project
+            self.project.rmse_X_forward = rmse_X_forward
+            self.project.rmse_Y_forward = rmse_Y_forward
+            self.project.rmse_X_backward = rmse_X_backward
+            self.project.rmse_Y_backward = rmse_Y_backward
+
+            # Format improvement text
+            def format_improvement(improvement):
+                if improvement < 0:
+                    return f" (Got worse with a change of {improvement:.4f})" if improvement is not None else ""
+                elif improvement == 0:
+                    return f" (No changes " if improvement is not None else ""
+                else:
+                    return f" (Improved by {improvement:.4f})" if improvement is not None else ""
+
+            # Show the RMSE values and improvements in a message box
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Evaluation Results")
+            msg_box.setText(
+                f"<b>Evaluation Summary:</b><br><br>"
+                f"<b>Forward Transformation:</b><br>"
+                f"RMSE (X): {rmse_X_forward:.4f}{format_improvement(improvement_X_forward)}, "
+                f"RMSE (Y): {rmse_Y_forward:.4f}{format_improvement(improvement_Y_forward)}<br><br>"
+                f"<b>Backward Transformation:</b><br>"
+                f"RMSE (X): {rmse_X_backward:.4f}{format_improvement(improvement_X_backward)}, "
+                f"RMSE (Y): {rmse_Y_backward:.4f}{format_improvement(improvement_Y_backward)}"
+            )
+            msg_box.exec()
+            
         # Create a new dialog for the plots
         dialog = QDialog(self)
         dialog.setWindowTitle("Quiver Plots")
@@ -587,8 +646,8 @@ class ToolBoxMainWindow(QMainWindow):
         # Forward transformation plot
         x_forward = [point['x'] for point in icp_points]
         y_forward = [point['y'] for point in icp_points]
-        u_forward = predicted_x_forward - np.array([point['x'] for point in icp_points])
-        v_forward = predicted_y_forward - np.array([point['y'] for point in icp_points])
+        u_forward = predicted_x_forward - np.array(x_forward)
+        v_forward = predicted_y_forward - np.array(y_forward)
 
         image = self.image_viewer.pixmap.toImage()
         self.image = image 
@@ -606,8 +665,8 @@ class ToolBoxMainWindow(QMainWindow):
         # Backward transformation plot
         x_backward = [point['X'] for point in icp_points]
         y_backward = [point['Y'] for point in icp_points]
-        u_backward = predicted_x_backward - np.array([point['X'] for point in icp_points])
-        v_backward = predicted_y_backward - np.array([point['Y'] for point in icp_points])
+        u_backward = predicted_x_backward - np.array(x_backward)
+        v_backward = predicted_y_backward - np.array(y_backward)
 
         axes[1].quiver(x_backward, y_backward, u_backward, v_backward, angles='xy', scale_units='xy', scale=1, color='orange')
         axes[1].set_title("Backward Transformation", color='white')
@@ -636,6 +695,7 @@ class ToolBoxMainWindow(QMainWindow):
 
         # Show the dialog
         dialog.exec()
+
         
     def save_project_dialog(self):
         """Open a file dialog to save the project."""
@@ -756,9 +816,11 @@ class ToolBoxMainWindow(QMainWindow):
             icp_dx, icp_dy = pointwise.multiquadratic()
         elif method == "LDW":
             icp_dx, icp_dy = pointwise.LDW(n=4, r=r)
-
-        # Store computed values
-        project.set_displacement_values(icp_dx, icp_dy, project.dX, project.dY)
+            
+        # project.set_displacement_values(icp_dx, icp_dy, project.dX, project.dY)
+        (p_x, p_y),( p_X, p_Y) = project.get_predicted()
+        
+        self.show_quiver_plots(self.get_icp_points(), p_X , p_Y, p_x + icp_dx, p_y + icp_dy, show_rmse=True)
 
         QMessageBox.information(self, "Success", f"Pointwise computation completed using {method}.")
 

@@ -23,7 +23,34 @@ class Project:
         self.dy = None
         self.dX = None
         self.dY = None
+        self.predicted_x = None
+        self.predicted_X = None 
+        self.predicted_Y = None
+        self.predicted_y = None
+        self.actual_X = None
+        self.actual_Y = None
+        self.actual_x = None
+        self.actual_y = None
+        self.rmse_X_forward = None
+        self.rmse_Y_forward = None
+        self.rmse_X_backward = None
+        self.rmse_Y_backward = None
+        
+    def set_predicted(self, X, x, Y, y):
+        self.predicted_x = x
+        self.predicted_X = X 
+        self.predicted_Y = Y
+        self.predicted_y = y
+    
+    def get_predicted(self):
+        return (self.predicted_x, self.predicted_y), (self.predicted_X, self.predicted_Y)
 
+    def set_gt_icp(self, actual_X, actual_Y, actual_x, actual_y):
+        self.actual_X = actual_X
+        self.actual_Y = actual_Y
+        self.actual_x = actual_x
+        self.actual_y = actual_y
+    
     def set_displacement_values(self, dx, dy, dX, dY):
         """
         Set displacement values for GCPs.
