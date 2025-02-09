@@ -35,6 +35,7 @@ class Project:
         self.rmse_Y_forward = None
         self.rmse_X_backward = None
         self.rmse_Y_backward = None
+        self.gcp_filepath = None
         
     def set_predicted(self, X, x, Y, y):
         self.predicted_x = x
@@ -61,11 +62,10 @@ class Project:
         self.dY = np.array(dY)
 
     def save_to_file(self, filename):
-        """
-        Save the current state of the Project instance to a file using pickle.
-        """
-        with open(filename, 'wb') as file:
+        with open(filename + ".kntu", 'wb') as file:
             pickle.dump(self.__dict__, file)
+        print("Project saved successfully!")  
+
 
     def load_from_file(self, filename):
         """

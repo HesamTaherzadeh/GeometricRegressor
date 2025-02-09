@@ -46,7 +46,6 @@ class Pointwise:
         
         icp_dist_matrix_xy = self.compute_distance_matrix(self.icp_coords_xy, self.gcp_coords_xy)
         icp_dist_matrix_XY = self.compute_distance_matrix(self.icp_coords_XY, self.gcp_coords_XY)
-        print(self.icp_coords_xy.shape, icp_dist_matrix_xy.shape, icp_dist_matrix_xy.shape)
 
         icp_dx = icp_dist_matrix_xy @ coeffs_dx
         icp_dy = icp_dist_matrix_xy @ coeffs_dy

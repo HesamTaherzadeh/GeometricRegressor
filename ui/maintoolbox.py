@@ -305,17 +305,21 @@ class ToolBoxMainWindow(QMainWindow):
         """
         image_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)")
         self.image_path = image_path
+        self.project.image_path = image_path
         if image_path:
-            pixmap = QPixmap(image_path)
-            self.image_scene.clear()
-            self.image_viewer.set_pixmap(pixmap)
-
-            pixmap_item = QGraphicsPixmapItem(pixmap)
-            self.image_scene.addItem(pixmap_item)
-            self.image_viewer.setScene(self.image_scene)
-            self.image_viewer.fitInView(self.image_scene.sceneRect(), Qt.KeepAspectRatio)
+            self.open_image_with_path(image_path)
 
 
+    def open_image_with_path(self, image_path):
+        pixmap = QPixmap(image_path)
+        self.image_scene.clear()
+        self.image_viewer.set_pixmap(pixmap)
+
+        pixmap_item = QGraphicsPixmapItem(pixmap)
+        self.image_scene.addItem(pixmap_item)
+        self.image_viewer.setScene(self.image_scene)
+        self.image_viewer.fitInView(self.image_scene.sceneRect(), Qt.KeepAspectRatio)
+            
     def load_gcp_file(self):
         """
         Opens a file dialog to select a GCP file and loads its content into the table.
@@ -326,41 +330,46 @@ class ToolBoxMainWindow(QMainWindow):
             return
 
         file_path, _ = QFileDialog.getOpenFileName(self, "Open GCP File", "", "Text Files (*.txt)")
+        self.project.gcp_filepath = file_path
+            
         if file_path:
-            with open(file_path, "r") as file:
-                lines = file.readlines()
-                self.table_widget.setRowCount(len(lines))
-                for row, line in enumerate(lines):
-                    values = line.strip().split()
-                    for col, value in enumerate(values):
-                        self.table_widget.setItem(row, col, QTableWidgetItem(value))
-                    
-                    # Add ICP checkbox in the last column (checked by default)
-                    checkbox = QCheckBox()
-                    checkbox.setChecked(True)  # Mark as ICP by default
-                    checkbox.setStyleSheet("margin-left: 50%; margin-right: 50%;")
-                    checkbox.stateChanged.connect(lambda state, row=row: self.update_icon(row, state))
-                    self.table_widget.setCellWidget(row, 6, checkbox)
+            self.read_file_path(file_path)
+            
+    def read_file_path(self, file_path):
+        with open(file_path, "r") as file:
+            lines = file.readlines()
+            self.table_widget.setRowCount(len(lines))
+            for row, line in enumerate(lines):
+                values = line.strip().split()
+                for col, value in enumerate(values):
+                    self.table_widget.setItem(row, col, QTableWidgetItem(value))
+                
+                # Add ICP checkbox in the last column (checked by default)
+                checkbox = QCheckBox()
+                checkbox.setChecked(True)  # Mark as ICP by default
+                checkbox.setStyleSheet("margin-left: 50%; margin-right: 50%;")
+                checkbox.stateChanged.connect(lambda state, row=row: self.update_icon(row, state))
+                self.table_widget.setCellWidget(row, 6, checkbox)
 
-                    # Draw scaled icons on the image
-                    if len(values) >= 3:  # Ensure there are at least x, y coordinates
-                        x, y = int(float(values[1])), int(float(values[2]))
-                        idx = values[0]
+                # Draw scaled icons on the image
+                if len(values) >= 3:  # Ensure there are at least x, y coordinates
+                    x, y = int(float(values[1])), int(float(values[2]))
+                    idx = values[0]
 
-                        icon_path = "ui/icon/redpin.png"  # Replace with the path to your icon
-                        icon_pixmap = QPixmap(icon_path)
-                        scaled_pixmap = icon_pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)  # Resize to 20x20
-                        icon_item = self.image_scene.addPixmap(scaled_pixmap)
-                        icon_item.setOffset(x - scaled_pixmap.width() // 2, y - scaled_pixmap.height() // 2)
+                    icon_path = "ui/icon/redpin.png"  # Replace with the path to your icon
+                    icon_pixmap = QPixmap(icon_path)
+                    scaled_pixmap = icon_pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)  # Resize to 20x20
+                    icon_item = self.image_scene.addPixmap(scaled_pixmap)
+                    icon_item.setOffset(x - scaled_pixmap.width() // 2, y - scaled_pixmap.height() // 2)
 
-                        label = QLabel(idx)
-                        label.setStyleSheet("color: red; font-size: 10px;")
-                        label.setAttribute(Qt.WA_TranslucentBackground)
-                        proxy_label = self.image_scene.addWidget(label)
-                        proxy_label.setPos(x + 5, y - 5)
+                    label = QLabel(idx)
+                    label.setStyleSheet("color: red; font-size: 10px;")
+                    label.setAttribute(Qt.WA_TranslucentBackground)
+                    proxy_label = self.image_scene.addWidget(label)
+                    proxy_label.setPos(x + 5, y - 5)
 
-            self.table_scroll_area.setVisible(True)
-            self.toggle_table_button.setVisible(True)
+        self.table_scroll_area.setVisible(True)
+        self.toggle_table_button.setVisible(True)
 
 
     def convert_nearest_icp_to_gcp(self, scene_pos):
@@ -654,7 +663,7 @@ class ToolBoxMainWindow(QMainWindow):
         image_array = np.array(image.bits()).reshape(image.height(), image.width(), 4)[..., :3]
 
         # Display the image as the background
-        axes[0].imshow(image_array, extent=[0, image.width(), 0, image.height()], origin='upper')
+        axes[0].imshow(image_array)
         axes[0].quiver(x_forward, y_forward, u_forward, v_forward, angles='xy', scale_units='xy', scale=1, color='cyan')
         axes[0].set_title("Forward Transformation", color='white')
         axes[0].set_xlabel("x", color='white')
@@ -698,23 +707,73 @@ class ToolBoxMainWindow(QMainWindow):
 
         
     def save_project_dialog(self):
-        """Open a file dialog to save the project."""
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "Project Files (*.proj)")
-        if filename:
-            self.save_project(filename)
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "Project Files (*.kntu)")
+        print(f"Saving to: {filename}")  # Debugging
+        if not filename:
+            print("No filename selected!")
+            return  # Exit if no filename is provided
+        self.project.save_to_file(filename)
+
 
     def load_project_dialog(self):
-        """Open a file dialog to load the project."""
-        filename, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "Project Files (*.proj)")
-        if filename:
-            self.load_project(filename)
+        """Open a file dialog to load the project and restore its state."""
+        filename, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "Project Files (*.kntu)")
+        if not filename:
+            print("No filename selected for loading.")
+            return
+
+        # Load the project from the file
+        self.project.load_from_file(filename)
+
+        # Restore the UI based on the loaded project
+        self.restore_project_state()
+
+        print(f"Project successfully loaded from {filename}")
+
+    def restore_project_state(self):
+        """Restores all UI elements from the loaded project instance."""
+        self.open_image_from_path(self.project.image_path)
+        print(self.project.image_path)
+        self.restore_gcp_icp_points()
+
+        # Restore polynomial degree
+        if self.project.degree:
+            self.degree_slider.setValue(self.project.degree)
+
+        self.table_scroll_area.setVisible(True)
+        self.toggle_table_button.setVisible(True)
+
+
+    def open_image_from_path(self, image_path):
+        """Loads an image from a given path without opening a file dialog."""
+        if not image_path:
+            return
+
+        self.image_path = image_path  # Store the path
+        pixmap = QPixmap(image_path)
+
+        if pixmap.isNull():
+            print(f"Error loading image from {image_path}")
+            return
+
+        self.image_scene.clear()
+        self.image_viewer.set_pixmap(pixmap)
+
+        pixmap_item = QGraphicsPixmapItem(pixmap)
+        self.image_scene.addItem(pixmap_item)
+        self.image_viewer.setScene(self.image_scene)
+        self.image_viewer.fitInView(self.image_scene.sceneRect(), Qt.KeepAspectRatio)
+
+    
+    def restore_gcp_icp_points(self):
+        self.read_file_path(self.project.gcp_filepath)
 
     def update_ui_from_project(self):
         """Update the UI based on the state of the Project instance."""
         if self.project.image_path:
-            self.open_image()  # Reload the image
+            self.open_image_with_path()  
         if self.project.gcp_points:
-            self.load_gcp_file()  # Reload GCP points
+            self.load_gcp_file() 
         if self.project.degree:
             self.degree_slider.setValue(self.project.degree)
     
@@ -810,7 +869,7 @@ class ToolBoxMainWindow(QMainWindow):
 
         # Initialize the Pointwise computation
         pointwise = Pointwise(self.get_gcp_points(), self.get_icp_points(),
-                            project.dx, project.dy, project.dX, project.dY)
+                            project.dX, project.dY, project.dx, project.dy)
 
         if method == "MQ":
             icp_dx, icp_dy, icp_dX, icp_dY = pointwise.multiquadratic()
@@ -819,7 +878,7 @@ class ToolBoxMainWindow(QMainWindow):
             
         (p_x, p_y),( p_X, p_Y) = project.get_predicted()
         
-        self.show_quiver_plots(self.get_icp_points(), p_x + icp_dY , p_y + icp_dy, p_X + icp_dX, p_Y + icp_dY, show_rmse=True)
+        self.show_quiver_plots(self.get_icp_points(), p_x + icp_dx , p_y + icp_dy, p_X + icp_dX, p_Y + icp_dY, show_rmse=True)
 
         QMessageBox.information(self, "Success", f"Pointwise computation completed using {method}.")
 
