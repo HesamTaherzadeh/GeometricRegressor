@@ -71,47 +71,57 @@ class ToolBoxMainWindow(QMainWindow):
         self.right_layout = QVBoxLayout()
 
         self.save_project_button = HoverButton("ui/icon/save.png")  # Replace with your save icon path
+        self.save_project_button.setToolTip("Save the current project.")
         self.save_project_button.clicked.connect(self.save_project_dialog)
         self.right_layout.addWidget(self.save_project_button)
 
         self.load_project_button = HoverButton("ui/icon/open.png")  # Replace with your load icon path
+        self.load_project_button.setToolTip("Load an existing project.")
         self.load_project_button.clicked.connect(self.load_project_dialog)
         self.right_layout.addWidget(self.load_project_button)
 
         # Right layout: Buttons and controls
         self.open_button = HoverButton("ui/icon/image.png")
-        
+        self.open_button.setToolTip("Open an image file.")
         self.open_button.clicked.connect(self.open_image)
         self.right_layout.addWidget(self.open_button)
 
         self.load_gcp_button = HoverButton("ui/icon/pin.png")
+        self.load_gcp_button.setToolTip("Load a Ground Control Points (GCP) file.")
         self.load_gcp_button.clicked.connect(self.load_gcp_file)
         self.right_layout.addWidget(self.load_gcp_button)
 
         self.toggle_table_button = HoverButton("ui/icon/eye.png")
+        self.toggle_table_button.setToolTip("Toggle visibility of the data table.")
         self.toggle_table_button.clicked.connect(self.toggle_table_visibility)
         self.toggle_table_button.setVisible(False)
         self.right_layout.addWidget(self.toggle_table_button)
+        
         last_layout = QVBoxLayout()
 
         self.forward_button = HoverButton("ui/icon/regress.png")  
+        self.forward_button.setToolTip("Perform regression analysis.")
         self.forward_button.clicked.connect(self.perform_regression)
         self.right_layout.addWidget(self.forward_button)
         
         self.ga_button = HoverButton("ui/icon/GA.png")
+        self.ga_button.setToolTip("Run Genetic Algorithm (GA) workflow.")
         self.ga_button.clicked.connect(self.run_ga_workflow)
         self.ga_runner = GARunner(self)
         self.right_layout.addWidget(self.ga_button)
         
         self.split_line_button = HoverButton("ui/icon/piece.png", self)
+        self.split_line_button.setToolTip("Enable split line mode.")
         self.split_line_button.clicked.connect(self.enable_split_line_mode)
         self.right_layout.addWidget(self.split_line_button)
         
         self.pointwise_button = HoverButton("ui/icon/pointwise.png") 
+        self.pointwise_button.setToolTip("Perform pointwise operations.")
         self.pointwise_button.clicked.connect(self.perform_pointwise)
         self.right_layout.addWidget(self.pointwise_button)
         
         self.resampling_button = HoverButton("ui/icon/resample.png", self) 
+        self.resampling_button.setToolTip("Perform data resampling.")
         self.resampling_button.clicked.connect(self.perform_resampling)
         self.right_layout.addWidget(self.resampling_button)
         
@@ -120,6 +130,7 @@ class ToolBoxMainWindow(QMainWindow):
         self.degree_slider.setMaximum(35)
         self.degree_slider.setValue(1)  # Default degree is 1
         self.degree_slider.setInvertedAppearance(True)  # Start from bottom
+        self.degree_slider.setToolTip("Adjust the degree of the regression model (1-35).")
         self.degree_slider.setStyleSheet("""
             QSlider::groove:vertical {
                 background: #3d544d;
@@ -136,14 +147,13 @@ class ToolBoxMainWindow(QMainWindow):
         """)
         
         circle_widget = CircleNumberWidget(initial_value=self.degree_slider.value(), parent=self)
-
         self.degree_slider.valueChanged.connect(circle_widget.set_value)
-
         self.main_layout.addWidget(self.degree_slider)
         
         last_layout = QVBoxLayout()
         
         self.close_button = QPushButton("\u25CF", self)
+        self.close_button.setToolTip("Close the application.")
         self.close_button.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -152,7 +162,6 @@ class ToolBoxMainWindow(QMainWindow):
                 border-radius: 15px;
                 width: 15px;
                 height: 15px;
-
             }
             QPushButton:hover {
                 background-color: transparent;
@@ -160,7 +169,6 @@ class ToolBoxMainWindow(QMainWindow):
             }
         """)
 
-        self.main_layout.addWidget(self.degree_slider)
         self.close_button.clicked.connect(self.close)
         last_layout.addWidget(self.close_button)
         
@@ -171,6 +179,7 @@ class ToolBoxMainWindow(QMainWindow):
         
         self.lines = []
         self.waiting_for_point_pick = False
+
 
     def run_ga_workflow(self):
         """
