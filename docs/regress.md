@@ -100,9 +100,3 @@ The error is measured using **Root Mean Square Error (RMSE)**:
 ```math
 \text{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2}
 ```
-
-where:
-- \( y_i \) is the actual value.
-- \( \hat{y}_i \) is the predicted value.
-
----

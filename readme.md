@@ -1,5 +1,9 @@
 # **Geospatial Polynomial Transformation Toolbox**
 
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![Qt](https://img.shields.io/badge/Qt-%23217346.svg?style=for-the-badge&logo=Qt&logoColor=white)
+![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)
+
 ## **Overview**
 The **Geospatial Polynomial Transformation Toolbox** provides a robust framework for **geospatial image transformation, resampling, and interpolation** using **polynomial regression**. This toolbox enables users to perform **coordinate transformations**, **pointwise corrections**, **resampling**, and **piecewise regression** to improve georeferencing accuracy.
 
@@ -92,7 +96,16 @@ Each algorithm is documented in its respective file:
 4. **[Piecewise Regression](docs/piecewise.md)**  
    - Allows **dataset splitting** into **multiple regions** based on user-defined lines.  
    - Conducts **localized polynomial regression** for improved accuracy.
-5. **[UI Tutorial](docs/ui.md)**
+
+5. **[GA](thirdparty/GA/readme.md)**
+   - Chooses the **Best** terms to avoid overparameterization error 
+   - Performs two meta-heuristical search for terms for both backward and foreward
+
+6. **[Project management]**
+   - Defined a project class that saves all of the neccessary information processed into a `.kntu` file, named after KNTU university
+   - This utility allows users to save the project and their terms.
+
+7. **[UI Tutorial](docs/ui.md)**
    - A set of **GIFs** to showcase the power of the code 
 
 ---

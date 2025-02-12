@@ -83,6 +83,4 @@ If multiple **splitting lines** are drawn, each ICP/GCP is classified into **mul
 2. If additional lines exist, each sub-region is further divided.
 3. Polynomial regression is performed separately for each **final sub-region**.
 
-For `N` splitting lines, a point belongs to **one of `2^N` possible regions**.
-
 ---
