@@ -3,4 +3,4 @@ __pycache__/
 *.npy
 *.log
 *.kntu
-*.videos
+videos/
