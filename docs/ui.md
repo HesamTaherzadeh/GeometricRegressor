@@ -10,7 +10,7 @@
 
    Polynomial regression is used for both **forward** and **backward transformations** of the image coordinates. This step computes the transformation parameters based on the input GCPs to geo-reference the image accurately.
 
-   ![regress](../gifs/regress.gif)
+   ![regress](../gifs/Regress.gif)
 
 3. **Apply Pointwise Correction**
 
@@ -29,13 +29,13 @@
 
    After performing the transformation, the image is resampled to fit the newly transformed coordinates. Bilinear interpolation and multithreading are employed for efficient processing, ensuring minimal distortion.
 
-   ![resample](../gifs/resample.gif)
+   ![resample](../gifs/Resample.gif)
 
 5. **Use Piecewise Regression**
 
    Piecewise regression divides the dataset into smaller regions, enabling localized polynomial regression. This improves accuracy by applying different transformations to each region based on user-defined boundaries.
 
-   ![Piecewise](../gifs/piecewise.gif)
+   ![Piecewise](../gifs/PW.gif)
 
 6. **Project utility**
    Save and load your progress, including previous weights and image alongside points 
